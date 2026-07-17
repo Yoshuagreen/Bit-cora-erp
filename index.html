@@ -1,0 +1,1262 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Bitácora ERP — Punto de Venta e Inventario</title>
+<meta name="description" content="POS, inventario multialmacén, contabilidad y dashboard P&G, 100% offline." />
+<link rel="manifest" href="./manifest.json" />
+<meta name="theme-color" content="#2A1B30" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Bitácora" />
+<link rel="apple-touch-icon" href="./icons/icon-192.png" />
+<link rel="icon" href="./icons/icon-192.png" />
+
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Dexie.js (IndexedDB) -->
+<script src="https://cdn.jsdelivr.net/npm/dexie@3.2.4/dist/dexie.min.js"></script>
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<!-- Lucide Icons -->
+<script src="https://unpkg.com/lucide@0.303.0/dist/umd/lucide.js"></script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          odoo: {
+            purple: '#714B67',
+            dark: '#3B2643',
+            deep: '#2A1B30',
+            light: '#9C7B95',
+            tint: '#F1ECF0',
+            teal: '#017E84',
+            tealLight: '#E3F2F1',
+          },
+        },
+        fontFamily: {
+          sans: ['Inter', 'system-ui', 'sans-serif'],
+          mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        },
+      },
+    },
+  };
+</script>
+
+<style>
+  html,body{height:100%;}
+  body{font-family:'Inter',system-ui,sans-serif;background:#F1EFF2;color:#2B2530;}
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-thumb{background:#C9BFC6;border-radius:4px;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  .num{font-family:'JetBrains Mono',ui-monospace,monospace;}
+  [data-lucide]{display:inline-block;}
+  .nav-link.active{background:#714B67;color:#fff;}
+  .nav-link.active .nav-ico{color:#fff;}
+  .bottom-nav-link{color:rgba(255,255,255,.5);}
+  .bottom-nav-link.active{color:#fff;}
+  .tab-btn.active{background:#3B2643;color:#fff;}
+  .scale-in{animation:scaleIn .15s ease-out;}
+  @keyframes scaleIn{from{opacity:0;transform:translateY(6px) scale(.98);}to{opacity:1;transform:none;}}
+  .fade-in{animation:fadeIn .2s ease-out;}
+  @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+  .toast-in{animation:toastIn .25s cubic-bezier(.2,.8,.2,1);}
+  @keyframes toastIn{from{opacity:0;transform:translateX(16px);}to{opacity:1;transform:none;}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important;}}
+
+  #receipt-print{display:none;}
+  @media print{
+    body *{visibility:hidden;}
+    #receipt-print, #receipt-print *{visibility:visible;}
+    #receipt-print{display:block!important;position:absolute;top:0;left:0;width:100%;padding:16px;}
+  }
+</style>
+</head>
+<body class="text-sm">
+
+<div id="app" class="flex h-screen overflow-hidden items-center justify-center">
+  <div class="text-center text-gray-400 text-sm font-mono">Cargando Bitácora…</div>
+</div>
+<div id="fatal-error" class="hidden fixed inset-0 bg-white z-[100] p-8 overflow-y-auto"></div>
+<div id="toast-container" class="fixed bottom-4 right-4 z-[60] flex flex-col gap-2 items-end"></div>
+<div id="modal-root"></div>
+<div id="receipt-print"></div>
+
+<script>
+'use strict';
+
+/* =========================================================================
+   GLOBAL ERROR HANDLING (never fail silently into a blank page)
+   ========================================================================= */
+function showFatalError(err) {
+  console.error(err);
+  const el = document.getElementById('fatal-error');
+  const isFileProtocol = location.protocol === 'file:';
+  el.classList.remove('hidden');
+  el.innerHTML = `
+    <div class="max-w-lg mx-auto font-sans">
+      <h1 class="text-lg font-bold text-rose-600 mb-2">No se pudo iniciar la aplicación</h1>
+      <p class="text-sm text-gray-600 mb-3">${isFileProtocol
+        ? 'Este archivo se abrió directamente desde el disco (file://). Muchos navegadores bloquean IndexedDB en ese modo, así que la app no puede guardar datos. Sírvelo con un servidor local o publícalo en GitHub Pages (ver README.md).'
+        : 'Ocurrió un error inesperado al cargar los datos locales.'}</p>
+      <pre class="text-[11px] bg-gray-100 rounded-lg p-3 overflow-x-auto text-gray-500">${esc(err && err.message ? err.message : String(err))}</pre>
+    </div>`;
+}
+window.addEventListener('error', (e) => { if (!document.getElementById('view-root')) showFatalError(e.error || e.message); });
+window.addEventListener('unhandledrejection', (e) => { if (!document.getElementById('view-root')) showFatalError(e.reason); });
+
+/* =========================================================================
+   DATABASE (Dexie / IndexedDB)
+   ========================================================================= */
+const db = new Dexie('BitacoraERP');
+db.version(1).stores({
+  products: '++id, sku, name, category',
+  warehouses: '++id, name',
+  stock: '++id, productId, warehouseId',
+  movements: '++id, date, type, productId',
+  sales: '++id, date',
+  transactions: '++id, date, type',
+  settings: 'key',
+});
+
+/* =========================================================================
+   HELPERS
+   ========================================================================= */
+const uid = () => Math.random().toString(36).slice(2, 10);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = (n) => `$${Number(n || 0).toFixed(2)}`;
+const fmtDate = (iso) => new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const fmtMonth = (iso) => { const d = new Date(iso); return d.toLocaleDateString('es-ES', { month: 'short', year: '2-digit' }); };
+const monthKey = (iso) => iso.slice(0, 7);
+const todayISO = () => new Date().toISOString();
+const daysAgoISO = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString(); };
+const PAY_METHODS = ['efectivo', 'tarjeta', 'transferencia'];
+const PAY_LABEL = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia' };
+const PAY_COLOR = { efectivo: '#017E84', tarjeta: '#714B67', transferencia: '#B58900' };
+const EXPENSE_CATS = ['Compra de mercadería', 'Alquiler', 'Servicios', 'Sueldos', 'Marketing', 'Otro'];
+
+function icon(name, cls = 'w-4 h-4') { return `<i data-lucide="${name}" class="${cls}"></i>`; }
+function refreshIcons() { try { lucide.createIcons(); } catch (e) {} }
+
+let toastTimer;
+function toast(msg, kind = 'ok') {
+  const holder = document.getElementById('toast-container');
+  const colors = { ok: 'bg-odoo-dark', warn: 'bg-amber-600', err: 'bg-rose-600' };
+  const el = document.createElement('div');
+  el.className = `toast-in ${colors[kind] || colors.ok} text-white text-xs font-medium px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2`;
+  el.innerHTML = `${icon(kind === 'err' ? 'alert-circle' : kind === 'warn' ? 'alert-triangle' : 'check-circle-2', 'w-4 h-4')}<span>${esc(msg)}</span>`;
+  holder.appendChild(el);
+  setTimeout(() => { el.style.transition = 'opacity .3s'; el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 2600);
+}
+
+/* =========================================================================
+   STATE (in-memory mirror of Dexie tables — persisted through on mutation)
+   ========================================================================= */
+let state = {
+  products: [], warehouses: [], stock: [], movements: [], sales: [], transactions: [],
+  settings: { taxRate: 18 },
+  view: 'dashboard',
+  pos: { search: '', category: 'todas', cart: [], warehouseId: null },
+  inv: { search: '', showForm: false, editing: null, form: emptyProductForm(), transferFor: null },
+  acct: { filter: 'todos', showForm: false },
+  dash: { },
+  loaded: false,
+};
+function emptyProductForm() { return { sku: '', name: '', category: '', cost: '', price: '', minStock: '' }; }
+
+/* ---------- persistence (full-table overwrite; fine at prototype scale) --- */
+async function persist(table) {
+  await db[table].clear();
+  await db[table].bulkPut(state[table]);
+}
+async function persistSetting(key, value) {
+  state.settings[key] = value;
+  await db.settings.put({ key, value });
+}
+
+/* =========================================================================
+   DERIVED DATA HELPERS
+   ========================================================================= */
+function warehouseName(id) { const w = state.warehouses.find((x) => x.id === id); return w ? w.name : '—'; }
+function stockFor(productId, warehouseId) {
+  const s = state.stock.find((x) => x.productId === productId && x.warehouseId === warehouseId);
+  return s ? s.qty : 0;
+}
+function totalStock(productId) {
+  return state.stock.filter((x) => x.productId === productId).reduce((s, x) => s + x.qty, 0);
+}
+function setStock(productId, warehouseId, qty) {
+  let row = state.stock.find((x) => x.productId === productId && x.warehouseId === warehouseId);
+  if (row) row.qty = qty;
+  else state.stock.push({ id: uid(), productId, warehouseId, qty });
+}
+function adjustStock(productId, warehouseId, delta) {
+  const current = stockFor(productId, warehouseId);
+  setStock(productId, warehouseId, Math.max(0, current + delta));
+}
+function lowStockProducts() {
+  return state.products.filter((p) => totalStock(p.id) < p.minStock);
+}
+function categories() { return Array.from(new Set(state.products.map((p) => p.category))).filter(Boolean).sort(); }
+
+function cartLines() {
+  return state.pos.cart.map((i) => {
+    const p = state.products.find((pp) => pp.id === i.productId);
+    return p ? { ...i, product: p, lineTotal: p.price * i.qty } : null;
+  }).filter(Boolean);
+}
+function cartSubtotal() { return cartLines().reduce((s, l) => s + l.lineTotal, 0); }
+function cartTax() { return cartSubtotal() * (Number(state.settings.taxRate) / 100); }
+function cartTotal() { return cartSubtotal() + cartTax(); }
+
+function salesInMonth(key) { return state.sales.filter((s) => monthKey(s.date) === key); }
+function allTxByType(type) { return state.transactions.filter((t) => t.type === type); }
+
+function pgTotals(salesArr, expenseArr) {
+  const revenue = salesArr.reduce((s, x) => s + x.total, 0);
+  const cogs = salesArr.reduce((s, x) => s + x.items.reduce((a, it) => a + it.cost * it.qty, 0), 0);
+  const grossMargin = revenue - cogs;
+  const opex = expenseArr.reduce((s, x) => s + x.amount, 0);
+  const netProfit = grossMargin - opex;
+  return { revenue, cogs, grossMargin, opex, netProfit };
+}
+
+/* =========================================================================
+   SEED DATA
+   ========================================================================= */
+async function seedIfEmpty() {
+  const count = await db.products.count();
+  if (count > 0) return false;
+
+  const warehouses = [
+    { id: uid(), name: 'Almacén Principal' },
+    { id: uid(), name: 'Tienda / Exhibición' },
+  ];
+  const [WH_MAIN, WH_SHOP] = warehouses.map((w) => w.id);
+
+  const products = [
+    { id: uid(), sku: 'ABR-ARZ-1K', name: 'Arroz Extra 1kg', category: 'Abarrotes', cost: 2.50, price: 3.90, minStock: 20 },
+    { id: uid(), sku: 'ABR-ACE-1L', name: 'Aceite Vegetal 1L', category: 'Abarrotes', cost: 5.20, price: 7.50, minStock: 15 },
+    { id: uid(), sku: 'ABR-CAF-100', name: 'Café Instantáneo 100g', category: 'Abarrotes', cost: 6.50, price: 9.90, minStock: 8 },
+    { id: uid(), sku: 'LIM-DET-1K', name: 'Detergente 1kg', category: 'Limpieza', cost: 4.00, price: 6.20, minStock: 10 },
+    { id: uid(), sku: 'LIM-PAP-X4', name: 'Papel Higiénico x4', category: 'Limpieza', cost: 3.10, price: 4.80, minStock: 12 },
+    { id: uid(), sku: 'BEB-GAS-15', name: 'Gaseosa 1.5L', category: 'Bebidas', cost: 2.80, price: 4.50, minStock: 24 },
+    { id: uid(), sku: 'BEB-AGU-625', name: 'Agua Mineral 625ml', category: 'Bebidas', cost: 0.80, price: 1.50, minStock: 30 },
+    { id: uid(), sku: 'SNK-GAL-SUR', name: 'Galletas Surtidas', category: 'Snacks', cost: 1.20, price: 2.20, minStock: 20 },
+  ];
+
+  const stockSeed = [
+    [products[0].id, 60, 15], [products[1].id, 40, 8], [products[2].id, 5, 2],
+    [products[3].id, 22, 6], [products[4].id, 30, 10], [products[5].id, 70, 20],
+    [products[6].id, 90, 25], [products[7].id, 10, 6],
+  ];
+  const stock = [];
+  stockSeed.forEach(([pid, main, shop]) => {
+    stock.push({ id: uid(), productId: pid, warehouseId: WH_MAIN, qty: main });
+    stock.push({ id: uid(), productId: pid, warehouseId: WH_SHOP, qty: shop });
+  });
+
+  const transactions = [];
+  const sales = [];
+  const movements = [];
+
+  const expenseSeed = [
+    { days: 40, category: 'Alquiler', desc: 'Alquiler de local — mes anterior', amount: 800, method: 'transferencia' },
+    { days: 33, category: 'Servicios', desc: 'Pago de luz y agua', amount: 145.30, method: 'tarjeta' },
+    { days: 12, category: 'Compra de mercadería', desc: 'Reposición de inventario — proveedor Andina', amount: 520, method: 'transferencia' },
+    { days: 9, category: 'Alquiler', desc: 'Alquiler de local — mes actual', amount: 800, method: 'transferencia' },
+    { days: 4, category: 'Marketing', desc: 'Impresión de volantes promocionales', amount: 60, method: 'efectivo' },
+  ];
+  expenseSeed.forEach((e) => {
+    transactions.push({ id: uid(), date: daysAgoISO(e.days), type: 'expense', category: e.category, description: e.desc, amount: e.amount, paymentMethod: e.method, saleId: null });
+  });
+
+  const saleSeed = [
+    { days: 35, method: 'efectivo', wh: WH_SHOP, items: [[0, 5], [5, 4], [6, 6]] },
+    { days: 28, method: 'tarjeta', wh: WH_SHOP, items: [[1, 2], [3, 1]] },
+    { days: 20, method: 'efectivo', wh: WH_MAIN, items: [[2, 1], [7, 3]] },
+    { days: 15, method: 'transferencia', wh: WH_SHOP, items: [[4, 2], [5, 2]] },
+    { days: 6, method: 'tarjeta', wh: WH_SHOP, items: [[0, 3], [6, 4], [1, 1]] },
+    { days: 2, method: 'efectivo', wh: WH_MAIN, items: [[3, 2], [7, 2]] },
+  ];
+  saleSeed.forEach((s) => {
+    const date = daysAgoISO(s.days);
+    const items = s.items.map(([idx, qty]) => {
+      const p = products[idx];
+      return { productId: p.id, name: p.name, sku: p.sku, qty, price: p.price, cost: p.cost };
+    });
+    const subtotal = items.reduce((sum, it) => sum + it.price * it.qty, 0);
+    const tax = subtotal * 0.18;
+    const total = subtotal + tax;
+    const saleId = uid();
+    sales.push({ id: saleId, date, items, subtotal, tax, taxRate: 18, total, paymentMethod: s.method, warehouseId: s.wh });
+    transactions.push({ id: uid(), date, type: 'income', category: 'Venta POS', description: `Venta #${saleId.slice(0, 6)}`, amount: total, paymentMethod: s.method, saleId });
+    items.forEach((it) => {
+      const row = stock.find((x) => x.productId === it.productId && x.warehouseId === s.wh);
+      if (row) row.qty = Math.max(0, row.qty - it.qty);
+      movements.push({ id: uid(), date, type: 'venta', productId: it.productId, fromWarehouseId: s.wh, toWarehouseId: null, qty: it.qty, note: `Venta #${saleId.slice(0, 6)}` });
+    });
+  });
+
+  await db.warehouses.bulkPut(warehouses);
+  await db.products.bulkPut(products);
+  await db.stock.bulkPut(stock);
+  await db.transactions.bulkPut(transactions);
+  await db.sales.bulkPut(sales);
+  await db.movements.bulkPut(movements);
+  await db.settings.put({ key: 'taxRate', value: 18 });
+
+  return true;
+}
+
+async function loadAll() {
+  const [products, warehouses, stock, movements, sales, transactions, settingsRows] = await Promise.all([
+    db.products.toArray(), db.warehouses.toArray(), db.stock.toArray(), db.movements.toArray(),
+    db.sales.toArray(), db.transactions.toArray(), db.settings.toArray(),
+  ]);
+  state.products = products; state.warehouses = warehouses; state.stock = stock;
+  state.movements = movements; state.sales = sales.sort((a, b) => new Date(b.date) - new Date(a.date));
+  state.transactions = transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+  settingsRows.forEach((r) => { state.settings[r.key] = r.value; });
+  if (!state.pos.warehouseId && warehouses[0]) state.pos.warehouseId = warehouses[0].id;
+  state.loaded = true;
+}
+
+/* =========================================================================
+   SIDEBAR / SHELL
+   ========================================================================= */
+const NAV = [
+  { id: 'dashboard', label: 'Dashboard P&G', short: 'Panel', icon: 'layout-dashboard' },
+  { id: 'pos', label: 'Punto de Venta', short: 'Venta', icon: 'shopping-cart' },
+  { id: 'inventory', label: 'Inventario', short: 'Stock', icon: 'package' },
+  { id: 'accounting', label: 'Contabilidad', short: 'Cuentas', icon: 'book-open-check' },
+];
+
+function renderShell() {
+  const app = document.getElementById('app');
+  app.innerHTML = `
+    <aside class="hidden lg:flex lg:w-60 lg:shrink-0 bg-odoo-deep text-white flex-col">
+      <div class="px-5 py-5 flex items-center gap-2.5 border-b border-white/10">
+        <div class="w-8 h-8 rounded-md bg-odoo-purple flex items-center justify-center shrink-0">${icon('notebook-pen', 'w-5 h-5 text-white')}</div>
+        <div class="leading-tight">
+          <div class="font-bold tracking-tight text-[15px]">Bitácora</div>
+          <div class="text-[10px] uppercase tracking-wider text-white/40 font-mono">ERP · Retail</div>
+        </div>
+      </div>
+      <nav class="flex-1 px-3 py-4 flex flex-col gap-1" id="nav">
+        ${NAV.map((n) => navItemHTML(n)).join('')}
+      </nav>
+      <div class="px-3 pb-4 flex flex-col gap-1.5 border-t border-white/10 pt-3">
+        <button data-action="export-data" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-white/70 hover:bg-white/5 hover:text-white transition">
+          ${icon('download', 'w-3.5 h-3.5')} Exportar datos
+        </button>
+        <button data-action="trigger-import" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-white/70 hover:bg-white/5 hover:text-white transition">
+          ${icon('upload', 'w-3.5 h-3.5')} Importar datos
+        </button>
+        <div class="px-3 pt-2 text-[10px] text-white/30 font-mono">100% local · sin conexión</div>
+      </div>
+    </aside>
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <header class="bg-white border-b border-gray-200 px-4 md:px-6 py-3 md:py-3.5 flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-8 h-8 rounded-md bg-odoo-purple flex items-center justify-center shrink-0 lg:hidden">${icon('notebook-pen', 'w-4 h-4 text-white')}</div>
+          <div class="min-w-0">
+            <h1 class="font-extrabold text-[15px] md:text-lg text-odoo-deep leading-tight truncate" id="view-title"></h1>
+            <p class="text-[11px] md:text-xs text-gray-400 hidden sm:block" id="view-sub"></p>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5 md:gap-2 shrink-0">
+          <button id="btn-install" class="hidden items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-odoo-purple hover:bg-odoo-dark transition">
+            ${icon('download', 'w-3.5 h-3.5')}<span class="hidden sm:inline">Instalar app</span>
+          </button>
+          <button data-action="open-more-sheet" class="lg:hidden p-2 rounded-lg hover:bg-gray-100">${icon('more-vertical', 'w-5 h-5 text-gray-500')}</button>
+          <div class="hidden lg:flex items-center gap-2 text-xs text-gray-500 font-mono" id="header-clock"></div>
+        </div>
+      </header>
+      <main id="view-root" class="flex-1 overflow-y-auto p-3.5 lg:p-6 pb-24 lg:pb-6"></main>
+    </div>
+    <nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-odoo-deep border-t border-white/10" style="padding-bottom:env(safe-area-inset-bottom)">
+      <div class="grid grid-cols-4">
+        ${NAV.map((n) => bottomNavItemHTML(n)).join('')}
+      </div>
+    </nav>
+    <input type="file" id="import-file" accept="application/json" class="hidden" />
+  `;
+  document.getElementById('btn-install').addEventListener('click', doInstall);
+  document.getElementById('import-file').addEventListener('change', importData);
+  if (deferredInstallPrompt) toggleInstallButton(true);
+  refreshIcons();
+  tickClock();
+}
+function navItemHTML(n) {
+  const active = state.view === n.id;
+  return `<button data-action="nav" data-view="${n.id}" class="nav-link ${active ? 'active' : ''} flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium text-white/70 hover:bg-white/5 hover:text-white transition">
+    <span class="nav-ico text-white/50">${icon(n.icon, 'w-4 h-4')}</span>${n.label}
+  </button>`;
+}
+function bottomNavItemHTML(n) {
+  const active = state.view === n.id;
+  return `<button data-action="nav" data-view="${n.id}" class="bottom-nav-link ${active ? 'active' : ''} flex flex-col items-center gap-1 py-2.5">
+    ${icon(n.icon, 'w-5 h-5')}
+    <span class="text-[10px] font-mono uppercase tracking-wide">${n.short}</span>
+  </button>`;
+}
+function tickClock() {
+  const el = document.getElementById('header-clock');
+  if (!el) return;
+  el.textContent = new Date().toLocaleString('es-ES', { weekday: 'short', day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+  setTimeout(tickClock, 30000);
+}
+const VIEW_META = {
+  dashboard: ['Dashboard de Pérdidas y Ganancias', 'Resumen financiero del negocio'],
+  pos: ['Punto de Venta', 'Registra ventas y cobra en caja'],
+  inventory: ['Inventario', 'Productos, stock y almacenes'],
+  accounting: ['Contabilidad', 'Libro diario de ingresos y gastos'],
+};
+function setView(v) {
+  state.view = v;
+  document.querySelectorAll('.nav-link').forEach((b) => b.classList.toggle('active', b.dataset.view === v));
+  const [title, sub] = VIEW_META[v];
+  document.getElementById('view-title').textContent = title;
+  document.getElementById('view-sub').textContent = sub;
+  renderView();
+}
+function renderView() {
+  const root = document.getElementById('view-root');
+  root.classList.remove('fade-in'); void root.offsetWidth; root.classList.add('fade-in');
+  if (state.view === 'dashboard') root.innerHTML = dashboardHTML();
+  else if (state.view === 'pos') root.innerHTML = posHTML();
+  else if (state.view === 'inventory') root.innerHTML = inventoryHTML();
+  else root.innerHTML = accountingHTML();
+  refreshIcons();
+  if (state.view === 'dashboard') requestAnimationFrame(renderCharts);
+}
+
+/* =========================================================================
+   DASHBOARD
+   ========================================================================= */
+let chartBar, chartDonut;
+function dashboardHTML() {
+  const t = pgTotals(state.sales, allTxByType('expense'));
+  const kpis = [
+    { label: 'Ingresos totales', value: t.revenue, color: 'text-odoo-teal' },
+    { label: 'Costo de ventas', value: t.cogs, color: 'text-rose-600' },
+    { label: 'Margen bruto', value: t.grossMargin, color: 'text-odoo-purple' },
+    { label: 'Gastos operativos', value: t.opex, color: 'text-amber-600' },
+    { label: 'Utilidad neta', value: t.netProfit, color: t.netProfit >= 0 ? 'text-emerald-600' : 'text-rose-600' },
+  ];
+  const ls = lowStockProducts();
+  return `
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-2.5 mb-6">
+      ${kpis.map((k) => `
+        <div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4">
+          <div class="text-[11px] text-gray-400 mb-1.5">${k.label}</div>
+          <div class="num text-lg md:text-xl font-bold ${k.color}">${money(k.value)}</div>
+        </div>`).join('')}
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+      <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4 md:p-5">
+        <h3 class="font-semibold text-sm text-odoo-deep mb-3">Ingresos vs. gastos por mes</h3>
+        <div class="h-56 md:h-64"><canvas id="chart-bar"></canvas></div>
+      </div>
+      <div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4 md:p-5">
+        <h3 class="font-semibold text-sm text-odoo-deep mb-3">Métodos de pago</h3>
+        <div class="h-56 md:h-64 flex items-center justify-center"><canvas id="chart-donut"></canvas></div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4 md:p-5">
+      <h3 class="font-semibold text-sm text-odoo-deep mb-1">Stock bajo</h3>
+      ${ls.length === 0 ? `<p class="text-xs text-gray-400 mt-2">Todo el inventario está en niveles saludables.</p>` :
+        `<div class="mt-2">${ls.map((p) => `
+          <div class="flex items-center justify-between py-2.5 border-t border-gray-100 first:border-t-0">
+            <span class="text-xs text-gray-600 truncate">${esc(p.name)}</span>
+            <span class="num text-xs text-amber-600 font-semibold shrink-0 ml-2">${totalStock(p.id)}/${p.minStock}</span>
+          </div>`).join('')}</div>`}
+    </div>
+  `;
+}
+function renderCharts() {
+  const barCanvas = document.getElementById('chart-bar');
+  const donutCanvas = document.getElementById('chart-donut');
+  if (!barCanvas || !donutCanvas) return;
+
+  const keys = new Set();
+  state.sales.forEach((s) => keys.add(monthKey(s.date)));
+  state.transactions.filter((t) => t.type === 'expense').forEach((t) => keys.add(monthKey(t.date)));
+  const months = Array.from(keys).sort();
+  const labels = months.map((k) => { const [y, m] = k.split('-'); return fmtMonth(`${y}-${m}-01`); });
+  const incomeData = months.map((k) => salesInMonth(k).reduce((s, x) => s + x.total, 0));
+  const expenseData = months.map((k) => state.transactions.filter((t) => t.type === 'expense' && monthKey(t.date) === k).reduce((s, x) => s + x.amount, 0));
+
+  if (chartBar) chartBar.destroy();
+  chartBar = new Chart(barCanvas, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'Ingresos', data: incomeData, backgroundColor: '#017E84', borderRadius: 4, maxBarThickness: 28 },
+        { label: 'Gastos', data: expenseData, backgroundColor: '#C9A227', borderRadius: 4, maxBarThickness: 28 },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } },
+      scales: { y: { beginAtZero: true, ticks: { callback: (v) => '$' + v } }, x: { grid: { display: false } } },
+    },
+  });
+
+  const byMethod = {};
+  state.sales.forEach((s) => { byMethod[s.paymentMethod] = (byMethod[s.paymentMethod] || 0) + s.total; });
+  const methods = Object.keys(byMethod);
+  if (chartDonut) chartDonut.destroy();
+  chartDonut = new Chart(donutCanvas, {
+    type: 'doughnut',
+    data: {
+      labels: methods.map((m) => PAY_LABEL[m] || m),
+      datasets: [{ data: methods.map((m) => byMethod[m]), backgroundColor: methods.map((m) => PAY_COLOR[m] || '#999'), borderWidth: 2, borderColor: '#fff' }],
+    },
+    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } } },
+  });
+}
+
+function openMoreSheet() {
+  document.getElementById('modal-root').innerHTML = `
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end justify-center" id="modal-overlay">
+      <div class="scale-in bg-white rounded-t-2xl w-full p-4 pb-6" style="padding-bottom:calc(env(safe-area-inset-bottom) + 1rem)">
+        <div class="w-10 h-1 rounded-full bg-gray-200 mx-auto mb-4"></div>
+        <button data-action="export-data" class="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-odoo-deep hover:bg-gray-50">${icon('download', 'w-4 h-4 text-gray-400')} Exportar datos (JSON)</button>
+        <button data-action="trigger-import" class="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-odoo-deep hover:bg-gray-50">${icon('upload', 'w-4 h-4 text-gray-400')} Importar datos (JSON)</button>
+        ${deferredInstallPrompt ? `<button data-action="mobile-install" class="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-odoo-deep hover:bg-gray-50">${icon('smartphone', 'w-4 h-4 text-gray-400')} Instalar app</button>` : ''}
+        <div class="px-3 pt-2 text-[10px] text-gray-400 font-mono">100% local · sin conexión</div>
+        <button data-action="close-modal" class="w-full mt-3 py-2.5 rounded-lg text-sm font-medium border border-gray-200">Cerrar</button>
+      </div>
+    </div>`;
+  refreshIcons();
+  document.getElementById('modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+}
+
+/* =========================================================================
+   POS — PUNTO DE VENTA
+   ========================================================================= */
+function posHTML() {
+  const lines = cartLines();
+  return `
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 h-full">
+      <div class="lg:col-span-2 flex flex-col min-h-0">
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <div class="relative flex-1 min-w-[160px]">
+            ${icon('search', 'w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2')}
+            <input id="pos-search" placeholder="Buscar por nombre o SKU..." value="${esc(state.pos.search)}"
+              class="w-full pl-9 pr-3 py-2.5 rounded-lg border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-odoo-purple/30 focus:border-odoo-purple" />
+          </div>
+          <select id="pos-category" class="px-3 py-2.5 rounded-lg border border-gray-200 bg-white text-sm focus:outline-none">
+            <option value="todas" ${state.pos.category === 'todas' ? 'selected' : ''}>Todas las categorías</option>
+            ${categories().map((c) => `<option value="${esc(c)}" ${state.pos.category === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
+          </select>
+        </div>
+        <div id="pos-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 overflow-y-auto pr-1 content-start" style="max-height:calc(100vh - 200px)">
+          ${posGridHTML()}
+        </div>
+      </div>
+      <div class="hidden lg:flex lg:flex-col bg-white rounded-2xl shadow-sm shadow-gray-200/70 overflow-hidden">
+        ${cartPanelInnerHTML(lines)}
+      </div>
+    </div>
+    ${lines.length > 0 ? `
+      <button data-action="open-mobile-cart" class="lg:hidden fixed left-3 right-3 z-30 bg-odoo-purple text-white rounded-xl px-4 py-3 shadow-lg flex items-center justify-between" style="bottom:calc(4.75rem + env(safe-area-inset-bottom))">
+        <span class="flex items-center gap-2 text-xs font-semibold">${icon('shopping-cart', 'w-4 h-4')} ${lines.length} ítem(s)</span>
+        <span class="flex items-center gap-2 text-sm font-bold">${money(cartTotal())} ${icon('chevron-up', 'w-4 h-4')}</span>
+      </button>` : ''}
+  `;
+}
+function cartPanelInnerHTML(lines) {
+  return `
+    <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h3 class="font-bold text-sm text-odoo-deep flex items-center gap-2">${icon('shopping-cart', 'w-4 h-4')} Carrito</h3>
+      <span class="text-[10px] font-mono text-gray-400">${lines.length} ítem(s)</span>
+    </div>
+    <div class="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+      <label class="text-[10px] uppercase text-gray-400 font-semibold shrink-0">Almacén</label>
+      <select id="pos-warehouse" class="flex-1 text-xs px-2 py-1.5 rounded-md border border-gray-200 bg-gray-50">
+        ${state.warehouses.map((w) => `<option value="${w.id}" ${state.pos.warehouseId === w.id ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div id="cart-lines" class="flex-1 overflow-y-auto px-4 py-3 min-h-[120px]">
+      ${lines.length === 0 ? `<p class="text-xs text-gray-400 text-center py-8">Agrega productos desde la cuadrícula.</p>` :
+        lines.map((l) => cartLineHTML(l)).join('')}
+    </div>
+    <div class="px-4 py-3 border-t border-gray-100 bg-gray-50/60">
+      <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
+        <span>Subtotal</span><span class="num">${money(cartSubtotal())}</span>
+      </div>
+      <div class="flex items-center justify-between text-xs text-gray-500 mb-2">
+        <span class="flex items-center gap-1">IVA/IGV
+          <input id="pos-taxrate" type="number" min="0" max="100" step="0.5" value="${esc(state.settings.taxRate)}" class="w-12 text-center num border border-gray-200 rounded px-1 py-0.5 text-xs" />%
+        </span>
+        <span class="num">${money(cartTax())}</span>
+      </div>
+      <div class="flex items-center justify-between font-bold text-odoo-deep mb-3">
+        <span class="text-sm">Total</span><span class="num text-lg">${money(cartTotal())}</span>
+      </div>
+      <button data-action="open-checkout" ${lines.length === 0 ? 'disabled' : ''}
+        class="w-full py-3 rounded-lg font-bold text-sm text-white bg-odoo-purple hover:bg-odoo-dark transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+        ${icon('credit-card', 'w-4 h-4')} Cobrar
+      </button>
+    </div>`;
+}
+function openMobileCart() {
+  const lines = cartLines();
+  document.getElementById('modal-root').innerHTML = `
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end justify-center" id="modal-overlay" data-modal="mobile-cart">
+      <div class="scale-in bg-white rounded-t-2xl w-full max-h-[85vh] flex flex-col overflow-hidden" style="padding-bottom:env(safe-area-inset-bottom)">
+        <div class="w-10 h-1 rounded-full bg-gray-200 mx-auto my-3 shrink-0"></div>
+        ${cartPanelInnerHTML(lines)}
+      </div>
+    </div>`;
+  refreshIcons();
+  document.getElementById('modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+}
+function isMobileCartOpen() { return !!document.querySelector('#modal-overlay[data-modal="mobile-cart"]'); }
+function posGridHTML() {
+  const q = state.pos.search.toLowerCase();
+  const list = state.products.filter((p) =>
+    (state.pos.category === 'todas' || p.category === state.pos.category) &&
+    (p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q))
+  );
+  if (list.length === 0) return `<p class="col-span-full text-xs text-gray-400 text-center py-10">Sin productos que coincidan.</p>`;
+  return list.map((p) => {
+    const total = totalStock(p.id);
+    const out = total <= 0;
+    return `<button data-action="add-cart" data-id="${p.id}" ${out ? 'disabled' : ''}
+      class="text-left bg-white rounded-2xl shadow-sm shadow-gray-200/70 active:shadow-none p-3.5 min-h-[92px] transition flex flex-col justify-between gap-3 ${out ? 'opacity-40 cursor-not-allowed' : ''}">
+      <div class="min-w-0">
+        <div class="text-[13px] font-semibold leading-snug line-clamp-2">${esc(p.name)}</div>
+        <div class="text-[10px] text-gray-400 font-mono mt-0.5">${esc(p.sku)}</div>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="num text-sm font-bold text-odoo-deep">${money(p.price)}</span>
+        <span class="text-[10px] font-mono ${out ? 'text-rose-500' : total <= p.minStock ? 'text-amber-600' : 'text-gray-400'}">${out ? 'agotado' : `stk ${total}`}</span>
+      </div>
+    </button>`;
+  }).join('');
+}
+function cartLineHTML(l) {
+  return `<div class="flex items-center gap-2 mb-2.5">
+    <div class="min-w-0 flex-1">
+      <div class="text-xs font-medium truncate">${esc(l.product.name)}</div>
+      <div class="text-[10px] text-gray-400 num">${money(l.product.price)} c/u</div>
+    </div>
+    <div class="flex items-center gap-1 shrink-0">
+      <button data-action="cart-dec" data-id="${l.productId}" class="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center">${icon('minus', 'w-3 h-3')}</button>
+      <span class="w-6 text-center text-xs num">${l.qty}</span>
+      <button data-action="cart-inc" data-id="${l.productId}" class="w-6 h-6 rounded bg-gray-100 hover:bg-gray-200 flex items-center justify-center">${icon('plus', 'w-3 h-3')}</button>
+    </div>
+    <span class="num text-xs w-14 text-right shrink-0">${money(l.lineTotal)}</span>
+    <button data-action="cart-remove" data-id="${l.productId}" class="text-rose-400 hover:text-rose-600 shrink-0">${icon('x', 'w-3.5 h-3.5')}</button>
+  </div>`;
+}
+function refreshPosGrid() { const el = document.getElementById('pos-grid'); if (el) el.innerHTML = posGridHTML(); }
+
+function addToCart(id) {
+  const found = state.pos.cart.find((i) => i.productId === id);
+  state.pos.cart = found ? state.pos.cart.map((i) => (i.productId === id ? { ...i, qty: i.qty + 1 } : i)) : [...state.pos.cart, { productId: id, qty: 1 }];
+  renderView();
+  if (isMobileCartOpen()) openMobileCart();
+}
+function cartDelta(id, delta) {
+  state.pos.cart = state.pos.cart.map((i) => (i.productId === id ? { ...i, qty: Math.max(1, i.qty + delta) } : i));
+  renderView();
+  if (isMobileCartOpen()) openMobileCart();
+}
+function cartRemove(id) {
+  state.pos.cart = state.pos.cart.filter((i) => i.productId !== id);
+  renderView();
+  if (isMobileCartOpen()) { if (cartLines().length === 0) closeModal(); else openMobileCart(); }
+}
+
+function openCheckout() {
+  if (cartLines().length === 0) return;
+  const modal = document.getElementById('modal-root');
+  modal.innerHTML = `
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end sm:items-center justify-center sm:p-4" id="modal-overlay">
+      <div class="scale-in bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-sm p-5 max-h-[88vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-odoo-deep">Confirmar cobro</h3>
+          <button data-action="close-modal">${icon('x', 'w-4 h-4 text-gray-400')}</button>
+        </div>
+        <div class="flex items-center justify-between text-sm mb-4 bg-gray-50 rounded-lg px-3 py-2.5">
+          <span class="text-gray-500">Total a cobrar</span>
+          <span class="num font-bold text-lg text-odoo-deep">${money(cartTotal())}</span>
+        </div>
+        <label class="block mb-3">
+          <span class="text-[10px] uppercase text-gray-400 font-semibold">Método de pago</span>
+          <div class="grid grid-cols-3 gap-2 mt-1.5">
+            ${PAY_METHODS.map((m) => `<button data-action="pick-payment" data-method="${m}" class="pay-pick-btn ${m === (state.pos._method || 'efectivo') ? 'active' : ''} py-2 rounded-lg border text-xs font-medium border-gray-200 hover:border-odoo-purple">${PAY_LABEL[m]}</button>`).join('')}
+          </div>
+        </label>
+        <label class="block mb-4">
+          <span class="text-[10px] uppercase text-gray-400 font-semibold">Almacén de despacho</span>
+          <div class="mt-1.5 text-sm px-3 py-2 rounded-lg bg-gray-50 border border-gray-200">${esc(warehouseName(state.pos.warehouseId))}</div>
+        </label>
+        <button data-action="confirm-checkout" class="w-full py-2.5 rounded-lg font-bold text-sm text-white bg-odoo-purple hover:bg-odoo-dark transition">Registrar venta</button>
+      </div>
+    </div>`;
+  state.pos._method = state.pos._method || 'efectivo';
+  refreshIcons();
+  document.getElementById('modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+}
+function pickPayment(m) {
+  state.pos._method = m;
+  document.querySelectorAll('.pay-pick-btn').forEach((b) => b.classList.toggle('active', b.dataset.method === m));
+  document.querySelectorAll('.pay-pick-btn').forEach((b) => {
+    if (b.dataset.method === m) { b.classList.add('bg-odoo-purple', 'text-white', 'border-odoo-purple'); }
+    else { b.classList.remove('bg-odoo-purple', 'text-white', 'border-odoo-purple'); }
+  });
+}
+function closeModal() { document.getElementById('modal-root').innerHTML = ''; }
+
+async function confirmCheckout() {
+  const lines = cartLines();
+  const wid = state.pos.warehouseId;
+  const shortage = lines.find((l) => l.qty > stockFor(l.productId, wid));
+  if (shortage) { toast(`Stock insuficiente en "${warehouseName(wid)}" para ${shortage.product.name}`, 'err'); return; }
+
+  const method = state.pos._method || 'efectivo';
+  const date = todayISO();
+  const saleId = uid();
+  const subtotal = cartSubtotal(), tax = cartTax(), total = cartTotal();
+  const sale = {
+    id: saleId, date, warehouseId: wid, paymentMethod: method, subtotal, tax, taxRate: Number(state.settings.taxRate), total,
+    items: lines.map((l) => ({ productId: l.product.id, name: l.product.name, sku: l.product.sku, qty: l.qty, price: l.product.price, cost: l.product.cost })),
+  };
+  state.sales.unshift(sale);
+  lines.forEach((l) => {
+    adjustStock(l.product.id, wid, -l.qty);
+    state.movements.push({ id: uid(), date, type: 'venta', productId: l.product.id, fromWarehouseId: wid, toWarehouseId: null, qty: l.qty, note: `Venta #${saleId.slice(0, 6)}` });
+  });
+  state.transactions.unshift({ id: uid(), date, type: 'income', category: 'Venta POS', description: `Venta #${saleId.slice(0, 6)}`, amount: total, paymentMethod: method, saleId });
+
+  await Promise.all([persist('sales'), persist('stock'), persist('movements'), persist('transactions')]);
+
+  closeModal();
+  toast('Venta registrada correctamente');
+  showReceipt(sale);
+  state.pos.cart = [];
+  renderView();
+}
+
+function showReceipt(sale) {
+  const printArea = document.getElementById('receipt-print');
+  printArea.innerHTML = `
+    <div class="font-mono text-xs" style="width:280px">
+      <div class="text-center font-bold text-sm mb-1">BITÁCORA</div>
+      <div class="text-center text-[10px] mb-2">Recibo de venta</div>
+      <div class="border-t border-dashed border-black my-2"></div>
+      <div>${fmtDate(sale.date)}</div>
+      <div>Folio: ${sale.id.slice(0, 8).toUpperCase()}</div>
+      <div>Almacén: ${esc(warehouseName(sale.warehouseId))}</div>
+      <div>Pago: ${PAY_LABEL[sale.paymentMethod]}</div>
+      <div class="border-t border-dashed border-black my-2"></div>
+      ${sale.items.map((it) => `<div class="flex justify-between"><span>${esc(it.name)} x${it.qty}</span><span>${money(it.price * it.qty)}</span></div>`).join('')}
+      <div class="border-t border-dashed border-black my-2"></div>
+      <div class="flex justify-between"><span>Subtotal</span><span>${money(sale.subtotal)}</span></div>
+      <div class="flex justify-between"><span>IVA/IGV (${sale.taxRate}%)</span><span>${money(sale.tax)}</span></div>
+      <div class="flex justify-between font-bold text-sm"><span>TOTAL</span><span>${money(sale.total)}</span></div>
+      <div class="text-center text-[10px] mt-3">¡Gracias por su compra!</div>
+    </div>`;
+
+  const modal = document.getElementById('modal-root');
+  modal.innerHTML = `
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end sm:items-center justify-center sm:p-4" id="modal-overlay">
+      <div class="scale-in bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-sm p-5 max-h-[88vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-bold text-odoo-deep flex items-center gap-2">${icon('check-circle-2', 'w-4 h-4 text-emerald-500')} Venta completada</h3>
+          <button data-action="close-modal">${icon('x', 'w-4 h-4 text-gray-400')}</button>
+        </div>
+        <div class="border border-dashed border-gray-300 rounded-lg p-4 bg-gray-50">
+          ${printArea.innerHTML}
+        </div>
+        <div class="flex gap-2 mt-4">
+          <button data-action="close-modal" class="flex-1 py-2.5 rounded-lg text-sm font-medium border border-gray-200 hover:bg-gray-50">Cerrar</button>
+          <button data-action="print-receipt" class="flex-1 py-2.5 rounded-lg text-sm font-bold text-white bg-odoo-purple hover:bg-odoo-dark flex items-center justify-center gap-2">${icon('printer', 'w-4 h-4')} Imprimir</button>
+        </div>
+      </div>
+    </div>`;
+  refreshIcons();
+  document.getElementById('modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+}
+
+/* =========================================================================
+   INVENTARIO
+   ========================================================================= */
+function inventoryHTML() {
+  const q = state.inv.search.toLowerCase();
+  const list = state.products.filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
+  return `
+    <div class="flex flex-wrap items-center gap-2 mb-4">
+      <div class="relative flex-1 min-w-[160px] sm:max-w-sm">
+        ${icon('search', 'w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2')}
+        <input id="inv-search" placeholder="Buscar producto, SKU o categoría..." value="${esc(state.inv.search)}"
+          class="w-full pl-9 pr-3 py-2.5 rounded-lg border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-odoo-purple/30" />
+      </div>
+      <button data-action="open-transfer" class="px-3 sm:px-4 py-2.5 rounded-lg text-xs font-semibold border border-gray-200 bg-white hover:border-odoo-purple flex items-center gap-1.5">${icon('arrow-left-right', 'w-3.5 h-3.5')} <span class="hidden sm:inline">Transferir stock</span></button>
+      <button data-action="open-new-product" class="px-3 sm:px-4 py-2.5 rounded-lg text-xs font-bold text-white bg-odoo-purple hover:bg-odoo-dark flex items-center gap-1.5">${icon('plus', 'w-3.5 h-3.5')} <span class="hidden sm:inline">Nuevo producto</span></button>
+    </div>
+    <div class="hidden lg:block bg-white rounded-2xl shadow-sm shadow-gray-200/70 overflow-hidden overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="bg-gray-50 text-gray-400 uppercase text-[10px] tracking-wide">
+            <th class="text-left px-4 py-2.5 font-semibold">Producto</th>
+            <th class="text-left px-4 py-2.5 font-semibold">Categoría</th>
+            <th class="text-right px-4 py-2.5 font-semibold">Costo</th>
+            <th class="text-right px-4 py-2.5 font-semibold">Precio</th>
+            ${state.warehouses.map((w) => `<th class="text-right px-4 py-2.5 font-semibold">${esc(w.name)}</th>`).join('')}
+            <th class="text-right px-4 py-2.5 font-semibold">Total</th>
+            <th class="text-right px-4 py-2.5 font-semibold">Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="inv-tbody">${inventoryRowsHTML(list)}</tbody>
+      </table>
+    </div>
+    <div class="lg:hidden flex flex-col gap-2" id="inv-cards">${inventoryCardsHTML(list)}</div>
+  `;
+}
+function inventoryCardsHTML(list) {
+  if (list.length === 0) return `<p class="text-center text-gray-400 text-xs py-10">Sin productos que coincidan.</p>`;
+  return list.map((p) => {
+    const total = totalStock(p.id);
+    const low = total < p.minStock;
+    const stockLine = state.warehouses.map((w) => `${esc(w.name)} ${stockFor(p.id, w.id)}`).join(' · ');
+    return `<div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4" data-action="open-edit-product" data-id="${p.id}">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="text-sm font-semibold truncate">${esc(p.name)}</div>
+          <div class="text-[11px] text-gray-400 mt-0.5">${esc(p.sku)} · ${esc(p.category)} · ${money(p.price)}</div>
+        </div>
+        <button data-action="delete-product" data-id="${p.id}" class="p-2 -m-2 text-gray-300 shrink-0">${icon('trash-2', 'w-4 h-4')}</button>
+      </div>
+      <div class="flex items-center justify-between mt-2.5 text-xs">
+        <span class="text-gray-500">${stockLine}</span>
+        <span class="num font-bold shrink-0 ml-2 ${low ? 'text-amber-600' : 'text-odoo-deep'}">${total}${low ? ' ⚠' : ''}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+function inventoryRowsHTML(list) {
+  if (list.length === 0) return `<tr><td colspan="8" class="text-center text-gray-400 py-10">Sin productos que coincidan.</td></tr>`;
+  return list.map((p) => {
+    const total = totalStock(p.id);
+    const low = total < p.minStock;
+    return `<tr class="border-t border-gray-100 hover:bg-gray-50/60">
+      <td class="px-4 py-2.5">
+        <div class="font-medium">${esc(p.name)}</div>
+        <div class="text-[10px] text-gray-400 font-mono">${esc(p.sku)}</div>
+      </td>
+      <td class="px-4 py-2.5 text-gray-500">${esc(p.category)}</td>
+      <td class="px-4 py-2.5 text-right num text-gray-500">${money(p.cost)}</td>
+      <td class="px-4 py-2.5 text-right num font-medium">${money(p.price)}</td>
+      ${state.warehouses.map((w) => `<td class="px-4 py-2.5 text-right num">${stockFor(p.id, w.id)}</td>`).join('')}
+      <td class="px-4 py-2.5 text-right num font-bold ${low ? 'text-amber-600' : 'text-odoo-deep'}">
+        ${total}${low ? ` ${icon('alert-triangle', 'w-3 h-3 inline align-text-top')}` : ''}
+      </td>
+      <td class="px-4 py-2.5">
+        <div class="flex items-center justify-end gap-1">
+          <button data-action="open-edit-product" data-id="${p.id}" class="p-1.5 rounded hover:bg-gray-100">${icon('pencil', 'w-3.5 h-3.5 text-gray-500')}</button>
+          <button data-action="delete-product" data-id="${p.id}" class="p-1.5 rounded hover:bg-rose-50">${icon('trash-2', 'w-3.5 h-3.5 text-rose-500')}</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function openNewProduct() { state.inv.editing = null; state.inv.form = emptyProductForm(); renderProductModal(); }
+function openEditProduct(id) {
+  const p = state.products.find((x) => x.id === id); if (!p) return;
+  state.inv.editing = id;
+  state.inv.form = { sku: p.sku, name: p.name, category: p.category, cost: p.cost, price: p.price, minStock: p.minStock };
+  renderProductModal();
+}
+function renderProductModal() {
+  const f = state.inv.form;
+  const field = (id, label, type = 'text', step) => `<label class="block mb-3">
+    <span class="text-[10px] uppercase text-gray-400 font-semibold">${label}</span>
+    <input id="${id}" type="${type}" ${step ? `step="${step}"` : ''} value="${esc(f[id.slice(3)])}" class="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-odoo-purple/30" />
+  </label>`;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end sm:items-center justify-center sm:p-4" id="modal-overlay">
+      <div class="scale-in bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-sm p-5 max-h-[88vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-odoo-deep">${state.inv.editing ? 'Editar producto' : 'Nuevo producto'}</h3>
+          <button data-action="close-modal">${icon('x', 'w-4 h-4 text-gray-400')}</button>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          ${field('pf-sku', 'SKU')}
+          ${field('pf-category', 'Categoría')}
+        </div>
+        ${field('pf-name', 'Nombre del producto')}
+        <div class="grid grid-cols-3 gap-3">
+          ${field('pf-cost', 'Costo', 'number', '0.01')}
+          ${field('pf-price', 'Precio venta', 'number', '0.01')}
+          ${field('pf-minStock', 'Stock mínimo', 'number', '1')}
+        </div>
+        <button data-action="save-product" class="w-full mt-2 py-2.5 rounded-lg font-bold text-sm text-white bg-odoo-purple hover:bg-odoo-dark">Guardar producto</button>
+      </div>
+    </div>`;
+  refreshIcons();
+  document.getElementById('modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+}
+async function saveProduct() {
+  const f = state.inv.form;
+  if (!f.name.trim() || !f.sku.trim()) { toast('Completa al menos SKU y nombre', 'warn'); return; }
+  const payload = { sku: f.sku.trim(), name: f.name.trim(), category: (f.category || '').trim() || 'General', cost: Number(f.cost) || 0, price: Number(f.price) || 0, minStock: Number(f.minStock) || 0 };
+  if (state.inv.editing) {
+    state.products = state.products.map((p) => (p.id === state.inv.editing ? { ...p, ...payload } : p));
+    toast('Producto actualizado');
+  } else {
+    const newId = uid();
+    state.products.push({ id: newId, ...payload });
+    state.warehouses.forEach((w) => setStock(newId, w.id, 0));
+    toast('Producto añadido');
+  }
+  await Promise.all([persist('products'), persist('stock')]);
+  closeModal(); renderView();
+}
+async function deleteProduct(id) {
+  state.products = state.products.filter((p) => p.id !== id);
+  state.stock = state.stock.filter((s) => s.productId !== id);
+  await Promise.all([persist('products'), persist('stock')]);
+  toast('Producto eliminado'); renderView();
+}
+
+function openTransfer() {
+  if (state.warehouses.length < 2) { toast('Se necesitan al menos 2 almacenes', 'warn'); return; }
+  const [w1, w2] = state.warehouses;
+  document.getElementById('modal-root').innerHTML = `
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end sm:items-center justify-center sm:p-4" id="modal-overlay">
+      <div class="scale-in bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-sm p-5 max-h-[88vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-odoo-deep flex items-center gap-2">${icon('arrow-left-right', 'w-4 h-4')} Transferir stock</h3>
+          <button data-action="close-modal">${icon('x', 'w-4 h-4 text-gray-400')}</button>
+        </div>
+        <label class="block mb-3">
+          <span class="text-[10px] uppercase text-gray-400 font-semibold">Producto</span>
+          <select id="tr-product" class="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
+            ${state.products.map((p) => `<option value="${p.id}">${esc(p.name)} (${esc(p.sku)})</option>`).join('')}
+          </select>
+        </label>
+        <div class="grid grid-cols-2 gap-3 mb-3">
+          <label class="block">
+            <span class="text-[10px] uppercase text-gray-400 font-semibold">Desde</span>
+            <select id="tr-from" class="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
+              ${state.warehouses.map((w) => `<option value="${w.id}">${esc(w.name)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="block">
+            <span class="text-[10px] uppercase text-gray-400 font-semibold">Hacia</span>
+            <select id="tr-to" class="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
+              ${state.warehouses.map((w, i) => `<option value="${w.id}" ${i === 1 ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}
+            </select>
+          </label>
+        </div>
+        <label class="block mb-1">
+          <span class="text-[10px] uppercase text-gray-400 font-semibold">Cantidad</span>
+          <input id="tr-qty" type="number" min="1" value="1" class="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+        </label>
+        <p class="text-[11px] text-gray-400 mb-4" id="tr-avail"></p>
+        <button data-action="save-transfer" class="w-full py-2.5 rounded-lg font-bold text-sm text-white bg-odoo-purple hover:bg-odoo-dark">Confirmar transferencia</button>
+      </div>
+    </div>`;
+  refreshIcons();
+  const updateAvail = () => {
+    const pid = document.getElementById('tr-product').value;
+    const fromId = document.getElementById('tr-from').value;
+    document.getElementById('tr-avail').textContent = `Disponible en origen: ${stockFor(pid, fromId)} unidades`;
+  };
+  document.getElementById('tr-product').addEventListener('change', updateAvail);
+  document.getElementById('tr-from').addEventListener('change', updateAvail);
+  updateAvail();
+  document.getElementById('modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+}
+async function saveTransfer() {
+  const pid = document.getElementById('tr-product').value;
+  const fromId = document.getElementById('tr-from').value;
+  const toId = document.getElementById('tr-to').value;
+  const qty = Number(document.getElementById('tr-qty').value) || 0;
+  if (fromId === toId) { toast('Elige almacenes distintos', 'warn'); return; }
+  if (qty <= 0) { toast('Ingresa una cantidad válida', 'warn'); return; }
+  if (qty > stockFor(pid, fromId)) { toast('Stock insuficiente en el almacén de origen', 'err'); return; }
+  adjustStock(pid, fromId, -qty);
+  adjustStock(pid, toId, qty);
+  const date = todayISO();
+  state.movements.unshift({ id: uid(), date, type: 'transferencia', productId: pid, fromWarehouseId: fromId, toWarehouseId: toId, qty, note: 'Transferencia manual' });
+  await Promise.all([persist('stock'), persist('movements')]);
+  closeModal(); toast('Transferencia de stock exitosa'); renderView();
+}
+
+/* =========================================================================
+   CONTABILIDAD
+   ========================================================================= */
+function accountingHTML() {
+  const filtered = state.transactions.filter((t) => state.acct.filter === 'todos' || t.type === state.acct.filter);
+  const income = allTxByType('income').reduce((s, x) => s + x.amount, 0);
+  const expense = allTxByType('expense').reduce((s, x) => s + x.amount, 0);
+  const byMethod = {};
+  state.transactions.forEach((t) => { const sign = t.type === 'income' ? 1 : -1; byMethod[t.paymentMethod] = (byMethod[t.paymentMethod] || 0) + sign * t.amount; });
+  return `
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+      <div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4">
+        <div class="text-[10px] uppercase text-gray-400 font-semibold mb-1">Ingresos totales</div>
+        <div class="num text-lg font-bold text-odoo-teal">${money(income)}</div>
+      </div>
+      <div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4">
+        <div class="text-[10px] uppercase text-gray-400 font-semibold mb-1">Gastos totales</div>
+        <div class="num text-lg font-bold text-amber-600">${money(expense)}</div>
+      </div>
+      ${PAY_METHODS.slice(0, 2).map((m) => `
+        <div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4">
+          <div class="text-[10px] uppercase text-gray-400 font-semibold mb-1">Flujo neto · ${PAY_LABEL[m]}</div>
+          <div class="num text-lg font-bold" style="color:${PAY_COLOR[m]}">${money(byMethod[m] || 0)}</div>
+        </div>`).join('')}
+    </div>
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <div class="flex items-center gap-1 bg-white rounded-lg border border-gray-200 p-1">
+        ${['todos', 'income', 'expense'].map((f) => `<button data-action="acct-filter" data-filter="${f}" class="tab-btn ${state.acct.filter === f ? 'active' : ''} px-3 py-1.5 rounded-md text-xs font-medium text-gray-500">${f === 'todos' ? 'Todos' : f === 'income' ? 'Ingresos' : 'Gastos'}</button>`).join('')}
+      </div>
+      <button data-action="open-expense" class="px-3 sm:px-4 py-2.5 rounded-lg text-xs font-bold text-white bg-odoo-purple hover:bg-odoo-dark flex items-center gap-1.5">${icon('plus', 'w-3.5 h-3.5')} <span class="hidden sm:inline">Nuevo gasto</span></button>
+    </div>
+    <div class="hidden lg:block bg-white rounded-2xl shadow-sm shadow-gray-200/70 overflow-hidden overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="bg-gray-50 text-gray-400 uppercase text-[10px] tracking-wide">
+            <th class="text-left px-4 py-2.5 font-semibold">Fecha</th>
+            <th class="text-left px-4 py-2.5 font-semibold">Descripción</th>
+            <th class="text-left px-4 py-2.5 font-semibold">Categoría</th>
+            <th class="text-left px-4 py-2.5 font-semibold">Método</th>
+            <th class="text-right px-4 py-2.5 font-semibold">Monto</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${filtered.length === 0 ? `<tr><td colspan="5" class="text-center text-gray-400 py-10">No hay movimientos registrados.</td></tr>` :
+            filtered.map((t) => `<tr class="border-t border-gray-100 hover:bg-gray-50/60">
+              <td class="px-4 py-2.5 text-gray-500 num">${fmtDate(t.date)}</td>
+              <td class="px-4 py-2.5 font-medium">${esc(t.description)}</td>
+              <td class="px-4 py-2.5 text-gray-500">${esc(t.category)}</td>
+              <td class="px-4 py-2.5 text-gray-500">${PAY_LABEL[t.paymentMethod] || t.paymentMethod}</td>
+              <td class="px-4 py-2.5 text-right num font-bold ${t.type === 'income' ? 'text-odoo-teal' : 'text-rose-600'}">${t.type === 'income' ? '+' : '-'}${money(t.amount)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+    <div class="lg:hidden flex flex-col gap-2">
+      ${filtered.length === 0 ? `<p class="text-center text-gray-400 text-xs py-10">No hay movimientos registrados.</p>` :
+        filtered.map((t) => `<div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-3 flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="text-xs font-medium truncate">${esc(t.description)}</div>
+            <div class="text-[10px] text-gray-400 font-mono mt-0.5">${fmtDate(t.date)} · ${esc(t.category)} · ${PAY_LABEL[t.paymentMethod] || t.paymentMethod}</div>
+          </div>
+          <span class="num text-sm font-bold shrink-0 ${t.type === 'income' ? 'text-odoo-teal' : 'text-rose-600'}">${t.type === 'income' ? '+' : '-'}${money(t.amount)}</span>
+        </div>`).join('')}
+    </div>
+  `;
+}
+function openExpenseModal() {
+  document.getElementById('modal-root').innerHTML = `
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end sm:items-center justify-center sm:p-4" id="modal-overlay">
+      <div class="scale-in bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-sm p-5 max-h-[88vh] overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-bold text-odoo-deep">Registrar gasto</h3>
+          <button data-action="close-modal">${icon('x', 'w-4 h-4 text-gray-400')}</button>
+        </div>
+        <label class="block mb-3">
+          <span class="text-[10px] uppercase text-gray-400 font-semibold">Categoría</span>
+          <select id="ex-category" class="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
+            ${EXPENSE_CATS.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')}
+          </select>
+        </label>
+        <label class="block mb-3">
+          <span class="text-[10px] uppercase text-gray-400 font-semibold">Descripción</span>
+          <input id="ex-desc" type="text" placeholder="Ej. Pago de alquiler" class="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+        </label>
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <label class="block">
+            <span class="text-[10px] uppercase text-gray-400 font-semibold">Monto</span>
+            <input id="ex-amount" type="number" step="0.01" min="0" class="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm" />
+          </label>
+          <label class="block">
+            <span class="text-[10px] uppercase text-gray-400 font-semibold">Método de pago</span>
+            <select id="ex-method" class="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm">
+              ${PAY_METHODS.map((m) => `<option value="${m}">${PAY_LABEL[m]}</option>`).join('')}
+            </select>
+          </label>
+        </div>
+        <button data-action="save-expense" class="w-full py-2.5 rounded-lg font-bold text-sm text-white bg-odoo-purple hover:bg-odoo-dark">Guardar gasto</button>
+      </div>
+    </div>`;
+  refreshIcons();
+  document.getElementById('modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+}
+async function saveExpense() {
+  const category = document.getElementById('ex-category').value;
+  const description = document.getElementById('ex-desc').value.trim();
+  const amount = Number(document.getElementById('ex-amount').value) || 0;
+  const paymentMethod = document.getElementById('ex-method').value;
+  if (!description || amount <= 0) { toast('Completa descripción y monto válido', 'warn'); return; }
+  state.transactions.unshift({ id: uid(), date: todayISO(), type: 'expense', category, description, amount, paymentMethod, saleId: null });
+  await persist('transactions');
+  closeModal(); toast('Gasto registrado'); renderView();
+}
+
+/* =========================================================================
+   EXPORT / IMPORT
+   ========================================================================= */
+async function exportData() {
+  const payload = {
+    exportedAt: todayISO(),
+    products: state.products, warehouses: state.warehouses, stock: state.stock,
+    movements: state.movements, sales: state.sales, transactions: state.transactions, settings: state.settings,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `bitacora-backup-${todayISO().slice(0, 10)}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  toast('Datos exportados');
+}
+async function importData(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    ['products', 'warehouses', 'stock', 'movements', 'sales', 'transactions'].forEach((k) => { state[k] = Array.isArray(data[k]) ? data[k] : []; });
+    if (data.settings) state.settings = { ...state.settings, ...data.settings };
+    await Promise.all([
+      persist('products'), persist('warehouses'), persist('stock'),
+      persist('movements'), persist('sales'), persist('transactions'),
+      db.settings.clear().then(() => db.settings.bulkPut(Object.entries(state.settings).map(([key, value]) => ({ key, value })))),
+    ]);
+    if (!state.pos.warehouseId && state.warehouses[0]) state.pos.warehouseId = state.warehouses[0].id;
+    toast('Datos importados correctamente');
+    setView(state.view);
+  } catch (err) {
+    console.error(err);
+    toast('El archivo no es válido', 'err');
+  } finally {
+    e.target.value = '';
+  }
+}
+
+/* =========================================================================
+   EVENT DELEGATION
+   ========================================================================= */
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('[data-action]');
+  if (!t) return;
+  const action = t.dataset.action, id = t.dataset.id;
+  switch (action) {
+    case 'nav': setView(t.dataset.view); break;
+    case 'add-cart': addToCart(id); break;
+    case 'cart-inc': cartDelta(id, 1); break;
+    case 'cart-dec': cartDelta(id, -1); break;
+    case 'cart-remove': cartRemove(id); break;
+    case 'open-checkout': openCheckout(); break;
+    case 'pick-payment': pickPayment(t.dataset.method); break;
+    case 'confirm-checkout': confirmCheckout(); break;
+    case 'print-receipt': window.print(); break;
+    case 'close-modal': closeModal(); break;
+    case 'open-new-product': openNewProduct(); break;
+    case 'open-edit-product': openEditProduct(id); break;
+    case 'delete-product': deleteProduct(id); break;
+    case 'save-product': saveProduct(); break;
+    case 'open-transfer': openTransfer(); break;
+    case 'save-transfer': saveTransfer(); break;
+    case 'acct-filter': state.acct.filter = t.dataset.filter; renderView(); break;
+    case 'open-expense': openExpenseModal(); break;
+    case 'save-expense': saveExpense(); break;
+    case 'open-mobile-cart': openMobileCart(); break;
+    case 'open-more-sheet': openMoreSheet(); break;
+    case 'export-data': closeModal(); exportData(); break;
+    case 'trigger-import': closeModal(); document.getElementById('import-file').click(); break;
+    case 'mobile-install': closeModal(); doInstall(); break;
+  }
+});
+
+document.addEventListener('input', (e) => {
+  const id = e.target.id;
+  if (id === 'pos-search') { state.pos.search = e.target.value; refreshPosGrid(); }
+  else if (id === 'inv-search') {
+    state.inv.search = e.target.value;
+    const q = state.inv.search.toLowerCase();
+    const list = state.products.filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
+    const tbody = document.getElementById('inv-tbody'); if (tbody) tbody.innerHTML = inventoryRowsHTML(list);
+    const cards = document.getElementById('inv-cards'); if (cards) cards.innerHTML = inventoryCardsHTML(list);
+    refreshIcons();
+  }
+  else if (id === 'pos-taxrate') { persistSetting('taxRate', Number(e.target.value) || 0).then(() => { renderView(); if (isMobileCartOpen()) openMobileCart(); }); }
+  else if (id && id.startsWith('pf-')) { state.inv.form[id.slice(3)] = e.target.value; }
+});
+document.addEventListener('change', (e) => {
+  const id = e.target.id;
+  if (id === 'pos-category') { state.pos.category = e.target.value; refreshPosGrid(); }
+  else if (id === 'pos-warehouse') { state.pos.warehouseId = e.target.value; renderView(); }
+});
+
+/* =========================================================================
+   PWA: SERVICE WORKER + INSTALL PROMPT
+   ========================================================================= */
+let deferredInstallPrompt = null;
+function toggleInstallButton(show) {
+  const btn = document.getElementById('btn-install');
+  if (!btn) return;
+  btn.classList.toggle('hidden', !show);
+  btn.classList.toggle('inline-flex', show);
+}
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  toggleInstallButton(true);
+});
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  toggleInstallButton(false);
+  toast('Bitácora instalada. Ya puedes abrirla sin conexión.');
+});
+function doInstall() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  deferredInstallPrompt.userChoice.finally(() => {
+    deferredInstallPrompt = null;
+    toggleInstallButton(false);
+  });
+}
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js').catch((err) => console.warn('SW registration failed:', err));
+  });
+}
+
+/* =========================================================================
+   BOOT
+   ========================================================================= */
+(async function boot() {
+  try {
+    const seeded = await seedIfEmpty();
+    await loadAll();
+    renderShell();
+    setView('dashboard');
+    if (seeded) toast('Datos de demostración cargados');
+  } catch (err) {
+    showFatalError(err);
+  }
+})();
+</script>
+</body>
+</html>
