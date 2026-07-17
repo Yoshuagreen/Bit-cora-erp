@@ -376,11 +376,11 @@ function renderShell() {
           <button id="btn-install" class="hidden items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-odoo-purple hover:bg-odoo-dark transition">
             ${icon('download', 'w-3.5 h-3.5')}<span class="hidden sm:inline">Instalar app</span>
           </button>
-          <button data-action="open-more-sheet" class="lg:hidden p-2 rounded-lg hover:bg-gray-100">${icon('more-vertical', 'w-4.5 h-4.5 text-gray-500')}</button>
+          <button data-action="open-more-sheet" class="lg:hidden p-2 rounded-lg hover:bg-gray-100">${icon('more-vertical', 'w-5 h-5 text-gray-500')}</button>
           <div class="hidden lg:flex items-center gap-2 text-xs text-gray-500 font-mono" id="header-clock"></div>
         </div>
       </header>
-      <main id="view-root" class="flex-1 overflow-y-auto p-3.5 md:p-6 pb-24 lg:pb-6"></main>
+      <main id="view-root" class="flex-1 overflow-y-auto p-3.5 lg:p-6 pb-24 lg:pb-6"></main>
     </div>
     <nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-odoo-deep border-t border-white/10" style="padding-bottom:env(safe-area-inset-bottom)">
       <div class="grid grid-cols-4">
@@ -391,7 +391,7 @@ function renderShell() {
   `;
   document.getElementById('btn-install').addEventListener('click', doInstall);
   document.getElementById('import-file').addEventListener('change', importData);
-  if (deferredInstallPrompt) document.getElementById('btn-install').classList.remove('hidden');
+  if (deferredInstallPrompt) toggleInstallButton(true);
   refreshIcons();
   tickClock();
 }
@@ -1213,16 +1213,20 @@ document.addEventListener('change', (e) => {
    PWA: SERVICE WORKER + INSTALL PROMPT
    ========================================================================= */
 let deferredInstallPrompt = null;
+function toggleInstallButton(show) {
+  const btn = document.getElementById('btn-install');
+  if (!btn) return;
+  btn.classList.toggle('hidden', !show);
+  btn.classList.toggle('inline-flex', show);
+}
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
-  const btn = document.getElementById('btn-install');
-  if (btn) btn.classList.remove('hidden');
+  toggleInstallButton(true);
 });
 window.addEventListener('appinstalled', () => {
   deferredInstallPrompt = null;
-  const btn = document.getElementById('btn-install');
-  if (btn) btn.classList.add('hidden');
+  toggleInstallButton(false);
   toast('Bitácora instalada. Ya puedes abrirla sin conexión.');
 });
 function doInstall() {
@@ -1230,8 +1234,7 @@ function doInstall() {
   deferredInstallPrompt.prompt();
   deferredInstallPrompt.userChoice.finally(() => {
     deferredInstallPrompt = null;
-    const btn = document.getElementById('btn-install');
-    if (btn) btn.classList.add('hidden');
+    toggleInstallButton(false);
   });
 }
 if ('serviceWorker' in navigator) {

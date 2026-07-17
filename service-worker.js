@@ -1,4 +1,4 @@
-const CACHE = 'bitacora-erp-v3';
+const CACHE = 'bitacora-erp-v4';
 
 // Local app shell — must succeed for the SW to install.
 const APP_SHELL = [
