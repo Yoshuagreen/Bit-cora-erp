@@ -55,6 +55,7 @@ Si actualizas el código (`index.html`), cambia el nombre de `CACHE` en `service
 
 ## Qué incluye
 
+- **Interfaz minimalista, pensada para móvil y tablet:** las vistas simplificadas (navegación inferior, hoja de carrito, tarjetas en vez de tablas) se usan hasta 1024px de ancho, así que tablets también reciben la versión ligera; solo pantallas de escritorio grandes ven la barra lateral y las tablas densas. Tarjetas sin bordes duros (sombra suave), menos iconos decorativos, listas de una sola línea en vez de chips, y objetivos de toque más grandes.
 - **Punto de Venta (POS):** cuadrícula de productos con buscador y filtro por categoría, carrito con IVA/IGV ajustable, selección de almacén de despacho y método de pago (efectivo, tarjeta, transferencia), descuento automático de stock y recibo digital imprimible.
 - **Inventario multialmacén:** alta/edición/baja de productos (SKU, categoría, costo, precio, stock mínimo), stock por almacén en columnas, transferencias manuales entre almacenes con registro de movimiento, alertas visuales de stock bajo.
 - **Contabilidad simplificada:** libro diario con ingresos automáticos (desde cada venta del POS) y gastos manuales por categoría y método de pago.

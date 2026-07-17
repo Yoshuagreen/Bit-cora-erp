@@ -60,6 +60,8 @@
   [data-lucide]{display:inline-block;}
   .nav-link.active{background:#714B67;color:#fff;}
   .nav-link.active .nav-ico{color:#fff;}
+  .bottom-nav-link{color:rgba(255,255,255,.5);}
+  .bottom-nav-link.active{color:#fff;}
   .tab-btn.active{background:#3B2643;color:#fff;}
   .scale-in{animation:scaleIn .15s ease-out;}
   @keyframes scaleIn{from{opacity:0;transform:translateY(6px) scale(.98);}to{opacity:1;transform:none;}}
@@ -331,16 +333,16 @@ async function loadAll() {
    SIDEBAR / SHELL
    ========================================================================= */
 const NAV = [
-  { id: 'dashboard', label: 'Dashboard P&G', icon: 'layout-dashboard' },
-  { id: 'pos', label: 'Punto de Venta', icon: 'shopping-cart' },
-  { id: 'inventory', label: 'Inventario', icon: 'package' },
-  { id: 'accounting', label: 'Contabilidad', icon: 'book-open-check' },
+  { id: 'dashboard', label: 'Dashboard P&G', short: 'Panel', icon: 'layout-dashboard' },
+  { id: 'pos', label: 'Punto de Venta', short: 'Venta', icon: 'shopping-cart' },
+  { id: 'inventory', label: 'Inventario', short: 'Stock', icon: 'package' },
+  { id: 'accounting', label: 'Contabilidad', short: 'Cuentas', icon: 'book-open-check' },
 ];
 
 function renderShell() {
   const app = document.getElementById('app');
   app.innerHTML = `
-    <aside class="w-60 shrink-0 bg-odoo-deep text-white flex flex-col">
+    <aside class="hidden lg:flex lg:w-60 lg:shrink-0 bg-odoo-deep text-white flex-col">
       <div class="px-5 py-5 flex items-center gap-2.5 border-b border-white/10">
         <div class="w-8 h-8 rounded-md bg-odoo-purple flex items-center justify-center shrink-0">${icon('notebook-pen', 'w-5 h-5 text-white')}</div>
         <div class="leading-tight">
@@ -352,35 +354,43 @@ function renderShell() {
         ${NAV.map((n) => navItemHTML(n)).join('')}
       </nav>
       <div class="px-3 pb-4 flex flex-col gap-1.5 border-t border-white/10 pt-3">
-        <button id="btn-export" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-white/70 hover:bg-white/5 hover:text-white transition">
+        <button data-action="export-data" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-white/70 hover:bg-white/5 hover:text-white transition">
           ${icon('download', 'w-3.5 h-3.5')} Exportar datos
         </button>
-        <label class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-white/70 hover:bg-white/5 hover:text-white transition cursor-pointer">
+        <button data-action="trigger-import" class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-white/70 hover:bg-white/5 hover:text-white transition">
           ${icon('upload', 'w-3.5 h-3.5')} Importar datos
-          <input type="file" id="import-file" accept="application/json" class="hidden" />
-        </label>
+        </button>
         <div class="px-3 pt-2 text-[10px] text-white/30 font-mono">100% local · sin conexión</div>
       </div>
     </aside>
     <div class="flex-1 flex flex-col overflow-hidden">
-      <header class="bg-white border-b border-gray-200 px-6 py-3.5 flex items-center justify-between shrink-0">
-        <div>
-          <h1 class="font-extrabold text-lg text-odoo-deep" id="view-title"></h1>
-          <p class="text-xs text-gray-400" id="view-sub"></p>
+      <header class="bg-white border-b border-gray-200 px-4 md:px-6 py-3 md:py-3.5 flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-8 h-8 rounded-md bg-odoo-purple flex items-center justify-center shrink-0 lg:hidden">${icon('notebook-pen', 'w-4 h-4 text-white')}</div>
+          <div class="min-w-0">
+            <h1 class="font-extrabold text-[15px] md:text-lg text-odoo-deep leading-tight truncate" id="view-title"></h1>
+            <p class="text-[11px] md:text-xs text-gray-400 hidden sm:block" id="view-sub"></p>
+          </div>
         </div>
-        <div class="flex items-center gap-3">
-          <button id="btn-install" class="hidden items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-odoo-purple hover:bg-odoo-dark transition">
-            ${icon('download', 'w-3.5 h-3.5')} Instalar app
+        <div class="flex items-center gap-1.5 md:gap-2 shrink-0">
+          <button id="btn-install" class="hidden items-center gap-1.5 px-2.5 md:px-3 py-1.5 rounded-lg text-xs font-semibold text-white bg-odoo-purple hover:bg-odoo-dark transition">
+            ${icon('download', 'w-3.5 h-3.5')}<span class="hidden sm:inline">Instalar app</span>
           </button>
-          <div class="flex items-center gap-2 text-xs text-gray-500 font-mono" id="header-clock"></div>
+          <button data-action="open-more-sheet" class="lg:hidden p-2 rounded-lg hover:bg-gray-100">${icon('more-vertical', 'w-4.5 h-4.5 text-gray-500')}</button>
+          <div class="hidden lg:flex items-center gap-2 text-xs text-gray-500 font-mono" id="header-clock"></div>
         </div>
       </header>
-      <main id="view-root" class="flex-1 overflow-y-auto p-6"></main>
+      <main id="view-root" class="flex-1 overflow-y-auto p-3.5 md:p-6 pb-24 lg:pb-6"></main>
     </div>
+    <nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 bg-odoo-deep border-t border-white/10" style="padding-bottom:env(safe-area-inset-bottom)">
+      <div class="grid grid-cols-4">
+        ${NAV.map((n) => bottomNavItemHTML(n)).join('')}
+      </div>
+    </nav>
+    <input type="file" id="import-file" accept="application/json" class="hidden" />
   `;
-  document.getElementById('btn-export').addEventListener('click', exportData);
-  document.getElementById('import-file').addEventListener('change', importData);
   document.getElementById('btn-install').addEventListener('click', doInstall);
+  document.getElementById('import-file').addEventListener('change', importData);
   if (deferredInstallPrompt) document.getElementById('btn-install').classList.remove('hidden');
   refreshIcons();
   tickClock();
@@ -389,6 +399,13 @@ function navItemHTML(n) {
   const active = state.view === n.id;
   return `<button data-action="nav" data-view="${n.id}" class="nav-link ${active ? 'active' : ''} flex items-center gap-3 px-3 py-2.5 rounded-lg text-[13px] font-medium text-white/70 hover:bg-white/5 hover:text-white transition">
     <span class="nav-ico text-white/50">${icon(n.icon, 'w-4 h-4')}</span>${n.label}
+  </button>`;
+}
+function bottomNavItemHTML(n) {
+  const active = state.view === n.id;
+  return `<button data-action="nav" data-view="${n.id}" class="bottom-nav-link ${active ? 'active' : ''} flex flex-col items-center gap-1 py-2.5">
+    ${icon(n.icon, 'w-5 h-5')}
+    <span class="text-[10px] font-mono uppercase tracking-wide">${n.short}</span>
   </button>`;
 }
 function tickClock() {
@@ -429,43 +446,38 @@ let chartBar, chartDonut;
 function dashboardHTML() {
   const t = pgTotals(state.sales, allTxByType('expense'));
   const kpis = [
-    { label: 'Ingresos totales', value: t.revenue, color: 'text-odoo-teal', icon: 'trending-up' },
-    { label: 'Costo de ventas', value: t.cogs, color: 'text-rose-600', icon: 'package-minus' },
-    { label: 'Margen bruto', value: t.grossMargin, color: 'text-odoo-purple', icon: 'scale' },
-    { label: 'Gastos operativos', value: t.opex, color: 'text-amber-600', icon: 'receipt' },
-    { label: 'Utilidad neta', value: t.netProfit, color: t.netProfit >= 0 ? 'text-emerald-600' : 'text-rose-600', icon: 'wallet' },
+    { label: 'Ingresos totales', value: t.revenue, color: 'text-odoo-teal' },
+    { label: 'Costo de ventas', value: t.cogs, color: 'text-rose-600' },
+    { label: 'Margen bruto', value: t.grossMargin, color: 'text-odoo-purple' },
+    { label: 'Gastos operativos', value: t.opex, color: 'text-amber-600' },
+    { label: 'Utilidad neta', value: t.netProfit, color: t.netProfit >= 0 ? 'text-emerald-600' : 'text-rose-600' },
   ];
   const ls = lowStockProducts();
   return `
-    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-2.5 mb-6">
       ${kpis.map((k) => `
-        <div class="bg-white rounded-xl border border-gray-200 p-4">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-[10px] uppercase tracking-wide text-gray-400 font-semibold">${k.label}</span>
-            <span class="${k.color}">${icon(k.icon, 'w-3.5 h-3.5')}</span>
-          </div>
-          <div class="num text-xl font-bold ${k.color}">${money(k.value)}</div>
+        <div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4">
+          <div class="text-[11px] text-gray-400 mb-1.5">${k.label}</div>
+          <div class="num text-lg md:text-xl font-bold ${k.color}">${money(k.value)}</div>
         </div>`).join('')}
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-      <div class="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-5">
-        <h3 class="font-bold text-sm text-odoo-deep mb-1">Ingresos vs. Gastos por mes</h3>
-        <p class="text-xs text-gray-400 mb-4">Comparación mensual del flujo de caja</p>
-        <div class="h-64"><canvas id="chart-bar"></canvas></div>
+      <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4 md:p-5">
+        <h3 class="font-semibold text-sm text-odoo-deep mb-3">Ingresos vs. gastos por mes</h3>
+        <div class="h-56 md:h-64"><canvas id="chart-bar"></canvas></div>
       </div>
-      <div class="bg-white rounded-xl border border-gray-200 p-5">
-        <h3 class="font-bold text-sm text-odoo-deep mb-1">Métodos de pago</h3>
-        <p class="text-xs text-gray-400 mb-4">Distribución de ventas por método</p>
-        <div class="h-64 flex items-center justify-center"><canvas id="chart-donut"></canvas></div>
+      <div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4 md:p-5">
+        <h3 class="font-semibold text-sm text-odoo-deep mb-3">Métodos de pago</h3>
+        <div class="h-56 md:h-64 flex items-center justify-center"><canvas id="chart-donut"></canvas></div>
       </div>
     </div>
-    <div class="bg-white rounded-xl border border-gray-200 p-5">
-      <h3 class="font-bold text-sm text-odoo-deep mb-3 flex items-center gap-2">${icon('alert-triangle', 'w-4 h-4 text-amber-500')} Alertas de stock bajo</h3>
-      ${ls.length === 0 ? `<p class="text-xs text-gray-400">Todo el inventario está en niveles saludables.</p>` :
-        `<div class="grid grid-cols-2 md:grid-cols-3 gap-2">${ls.map((p) => `
-          <div class="flex items-center justify-between px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
-            <span class="text-xs font-medium truncate">${esc(p.name)}</span>
-            <span class="num text-xs text-amber-700 font-bold">${totalStock(p.id)}/${p.minStock}</span>
+    <div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4 md:p-5">
+      <h3 class="font-semibold text-sm text-odoo-deep mb-1">Stock bajo</h3>
+      ${ls.length === 0 ? `<p class="text-xs text-gray-400 mt-2">Todo el inventario está en niveles saludables.</p>` :
+        `<div class="mt-2">${ls.map((p) => `
+          <div class="flex items-center justify-between py-2.5 border-t border-gray-100 first:border-t-0">
+            <span class="text-xs text-gray-600 truncate">${esc(p.name)}</span>
+            <span class="num text-xs text-amber-600 font-semibold shrink-0 ml-2">${totalStock(p.id)}/${p.minStock}</span>
           </div>`).join('')}</div>`}
     </div>
   `;
@@ -514,6 +526,22 @@ function renderCharts() {
   });
 }
 
+function openMoreSheet() {
+  document.getElementById('modal-root').innerHTML = `
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end justify-center" id="modal-overlay">
+      <div class="scale-in bg-white rounded-t-2xl w-full p-4 pb-6" style="padding-bottom:calc(env(safe-area-inset-bottom) + 1rem)">
+        <div class="w-10 h-1 rounded-full bg-gray-200 mx-auto mb-4"></div>
+        <button data-action="export-data" class="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-odoo-deep hover:bg-gray-50">${icon('download', 'w-4 h-4 text-gray-400')} Exportar datos (JSON)</button>
+        <button data-action="trigger-import" class="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-odoo-deep hover:bg-gray-50">${icon('upload', 'w-4 h-4 text-gray-400')} Importar datos (JSON)</button>
+        ${deferredInstallPrompt ? `<button data-action="mobile-install" class="w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-odoo-deep hover:bg-gray-50">${icon('smartphone', 'w-4 h-4 text-gray-400')} Instalar app</button>` : ''}
+        <div class="px-3 pt-2 text-[10px] text-gray-400 font-mono">100% local · sin conexión</div>
+        <button data-action="close-modal" class="w-full mt-3 py-2.5 rounded-lg text-sm font-medium border border-gray-200">Cerrar</button>
+      </div>
+    </div>`;
+  refreshIcons();
+  document.getElementById('modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+}
+
 /* =========================================================================
    POS — PUNTO DE VENTA
    ========================================================================= */
@@ -522,8 +550,8 @@ function posHTML() {
   return `
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 h-full">
       <div class="lg:col-span-2 flex flex-col min-h-0">
-        <div class="flex items-center gap-2 mb-3">
-          <div class="relative flex-1">
+        <div class="flex flex-wrap items-center gap-2 mb-3">
+          <div class="relative flex-1 min-w-[160px]">
             ${icon('search', 'w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2')}
             <input id="pos-search" placeholder="Buscar por nombre o SKU..." value="${esc(state.pos.search)}"
               class="w-full pl-9 pr-3 py-2.5 rounded-lg border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-odoo-purple/30 focus:border-odoo-purple" />
@@ -533,47 +561,69 @@ function posHTML() {
             ${categories().map((c) => `<option value="${esc(c)}" ${state.pos.category === c ? 'selected' : ''}>${esc(c)}</option>`).join('')}
           </select>
         </div>
-        <div id="pos-grid" class="grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto pr-1 content-start" style="max-height:calc(100vh - 200px)">
+        <div id="pos-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 overflow-y-auto pr-1 content-start" style="max-height:calc(100vh - 200px)">
           ${posGridHTML()}
         </div>
       </div>
-      <div class="bg-white rounded-xl border border-gray-200 flex flex-col overflow-hidden">
-        <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-          <h3 class="font-bold text-sm text-odoo-deep flex items-center gap-2">${icon('shopping-cart', 'w-4 h-4')} Carrito</h3>
-          <span class="text-[10px] font-mono text-gray-400">${lines.length} ítem(s)</span>
-        </div>
-        <div class="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
-          <label class="text-[10px] uppercase text-gray-400 font-semibold shrink-0">Almacén</label>
-          <select id="pos-warehouse" class="flex-1 text-xs px-2 py-1.5 rounded-md border border-gray-200 bg-gray-50">
-            ${state.warehouses.map((w) => `<option value="${w.id}" ${state.pos.warehouseId === w.id ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}
-          </select>
-        </div>
-        <div id="cart-lines" class="flex-1 overflow-y-auto px-4 py-3 min-h-[120px]">
-          ${lines.length === 0 ? `<p class="text-xs text-gray-400 text-center py-8">Agrega productos desde la cuadrícula.</p>` :
-            lines.map((l) => cartLineHTML(l)).join('')}
-        </div>
-        <div class="px-4 py-3 border-t border-gray-100 bg-gray-50/60">
-          <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
-            <span>Subtotal</span><span class="num">${money(cartSubtotal())}</span>
-          </div>
-          <div class="flex items-center justify-between text-xs text-gray-500 mb-2">
-            <span class="flex items-center gap-1">IVA/IGV
-              <input id="pos-taxrate" type="number" min="0" max="100" step="0.5" value="${esc(state.settings.taxRate)}" class="w-12 text-center num border border-gray-200 rounded px-1 py-0.5 text-xs" />%
-            </span>
-            <span class="num">${money(cartTax())}</span>
-          </div>
-          <div class="flex items-center justify-between font-bold text-odoo-deep mb-3">
-            <span class="text-sm">Total</span><span class="num text-lg">${money(cartTotal())}</span>
-          </div>
-          <button data-action="open-checkout" ${lines.length === 0 ? 'disabled' : ''}
-            class="w-full py-3 rounded-lg font-bold text-sm text-white bg-odoo-purple hover:bg-odoo-dark transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-            ${icon('credit-card', 'w-4 h-4')} Cobrar
-          </button>
-        </div>
+      <div class="hidden lg:flex lg:flex-col bg-white rounded-2xl shadow-sm shadow-gray-200/70 overflow-hidden">
+        ${cartPanelInnerHTML(lines)}
       </div>
     </div>
+    ${lines.length > 0 ? `
+      <button data-action="open-mobile-cart" class="lg:hidden fixed left-3 right-3 z-30 bg-odoo-purple text-white rounded-xl px-4 py-3 shadow-lg flex items-center justify-between" style="bottom:calc(4.75rem + env(safe-area-inset-bottom))">
+        <span class="flex items-center gap-2 text-xs font-semibold">${icon('shopping-cart', 'w-4 h-4')} ${lines.length} ítem(s)</span>
+        <span class="flex items-center gap-2 text-sm font-bold">${money(cartTotal())} ${icon('chevron-up', 'w-4 h-4')}</span>
+      </button>` : ''}
   `;
 }
+function cartPanelInnerHTML(lines) {
+  return `
+    <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+      <h3 class="font-bold text-sm text-odoo-deep flex items-center gap-2">${icon('shopping-cart', 'w-4 h-4')} Carrito</h3>
+      <span class="text-[10px] font-mono text-gray-400">${lines.length} ítem(s)</span>
+    </div>
+    <div class="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+      <label class="text-[10px] uppercase text-gray-400 font-semibold shrink-0">Almacén</label>
+      <select id="pos-warehouse" class="flex-1 text-xs px-2 py-1.5 rounded-md border border-gray-200 bg-gray-50">
+        ${state.warehouses.map((w) => `<option value="${w.id}" ${state.pos.warehouseId === w.id ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}
+      </select>
+    </div>
+    <div id="cart-lines" class="flex-1 overflow-y-auto px-4 py-3 min-h-[120px]">
+      ${lines.length === 0 ? `<p class="text-xs text-gray-400 text-center py-8">Agrega productos desde la cuadrícula.</p>` :
+        lines.map((l) => cartLineHTML(l)).join('')}
+    </div>
+    <div class="px-4 py-3 border-t border-gray-100 bg-gray-50/60">
+      <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
+        <span>Subtotal</span><span class="num">${money(cartSubtotal())}</span>
+      </div>
+      <div class="flex items-center justify-between text-xs text-gray-500 mb-2">
+        <span class="flex items-center gap-1">IVA/IGV
+          <input id="pos-taxrate" type="number" min="0" max="100" step="0.5" value="${esc(state.settings.taxRate)}" class="w-12 text-center num border border-gray-200 rounded px-1 py-0.5 text-xs" />%
+        </span>
+        <span class="num">${money(cartTax())}</span>
+      </div>
+      <div class="flex items-center justify-between font-bold text-odoo-deep mb-3">
+        <span class="text-sm">Total</span><span class="num text-lg">${money(cartTotal())}</span>
+      </div>
+      <button data-action="open-checkout" ${lines.length === 0 ? 'disabled' : ''}
+        class="w-full py-3 rounded-lg font-bold text-sm text-white bg-odoo-purple hover:bg-odoo-dark transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+        ${icon('credit-card', 'w-4 h-4')} Cobrar
+      </button>
+    </div>`;
+}
+function openMobileCart() {
+  const lines = cartLines();
+  document.getElementById('modal-root').innerHTML = `
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end justify-center" id="modal-overlay" data-modal="mobile-cart">
+      <div class="scale-in bg-white rounded-t-2xl w-full max-h-[85vh] flex flex-col overflow-hidden" style="padding-bottom:env(safe-area-inset-bottom)">
+        <div class="w-10 h-1 rounded-full bg-gray-200 mx-auto my-3 shrink-0"></div>
+        ${cartPanelInnerHTML(lines)}
+      </div>
+    </div>`;
+  refreshIcons();
+  document.getElementById('modal-overlay').addEventListener('click', (e) => { if (e.target.id === 'modal-overlay') closeModal(); });
+}
+function isMobileCartOpen() { return !!document.querySelector('#modal-overlay[data-modal="mobile-cart"]'); }
 function posGridHTML() {
   const q = state.pos.search.toLowerCase();
   const list = state.products.filter((p) =>
@@ -585,10 +635,9 @@ function posGridHTML() {
     const total = totalStock(p.id);
     const out = total <= 0;
     return `<button data-action="add-cart" data-id="${p.id}" ${out ? 'disabled' : ''}
-      class="text-left bg-white border border-gray-200 rounded-lg p-3 hover:border-odoo-purple hover:shadow-sm transition flex flex-col gap-2 ${out ? 'opacity-40 cursor-not-allowed' : ''}">
-      <div class="w-full aspect-[4/2.2] rounded-md bg-odoo-tint flex items-center justify-center text-odoo-purple/50">${icon('package', 'w-6 h-6')}</div>
+      class="text-left bg-white rounded-2xl shadow-sm shadow-gray-200/70 active:shadow-none p-3.5 min-h-[92px] transition flex flex-col justify-between gap-3 ${out ? 'opacity-40 cursor-not-allowed' : ''}">
       <div class="min-w-0">
-        <div class="text-xs font-semibold leading-tight line-clamp-2">${esc(p.name)}</div>
+        <div class="text-[13px] font-semibold leading-snug line-clamp-2">${esc(p.name)}</div>
         <div class="text-[10px] text-gray-400 font-mono mt-0.5">${esc(p.sku)}</div>
       </div>
       <div class="flex items-center justify-between">
@@ -614,31 +663,30 @@ function cartLineHTML(l) {
   </div>`;
 }
 function refreshPosGrid() { const el = document.getElementById('pos-grid'); if (el) el.innerHTML = posGridHTML(); }
-function refreshCart() {
-  const lines = cartLines();
-  const cartEl = document.getElementById('cart-lines');
-  if (cartEl) cartEl.innerHTML = lines.length === 0 ? `<p class="text-xs text-gray-400 text-center py-8">Agrega productos desde la cuadrícula.</p>` : lines.map(cartLineHTML).join('');
-  // update totals block by re-rendering whole view (cheap enough) if not mid-typing tax field
-  if (document.activeElement?.id !== 'pos-taxrate') renderView();
-}
 
 function addToCart(id) {
   const found = state.pos.cart.find((i) => i.productId === id);
   state.pos.cart = found ? state.pos.cart.map((i) => (i.productId === id ? { ...i, qty: i.qty + 1 } : i)) : [...state.pos.cart, { productId: id, qty: 1 }];
   renderView();
+  if (isMobileCartOpen()) openMobileCart();
 }
 function cartDelta(id, delta) {
   state.pos.cart = state.pos.cart.map((i) => (i.productId === id ? { ...i, qty: Math.max(1, i.qty + delta) } : i));
   renderView();
+  if (isMobileCartOpen()) openMobileCart();
 }
-function cartRemove(id) { state.pos.cart = state.pos.cart.filter((i) => i.productId !== id); renderView(); }
+function cartRemove(id) {
+  state.pos.cart = state.pos.cart.filter((i) => i.productId !== id);
+  renderView();
+  if (isMobileCartOpen()) { if (cartLines().length === 0) closeModal(); else openMobileCart(); }
+}
 
 function openCheckout() {
   if (cartLines().length === 0) return;
   const modal = document.getElementById('modal-root');
   modal.innerHTML = `
-    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-center justify-center p-4" id="modal-overlay">
-      <div class="scale-in bg-white rounded-xl w-full max-w-sm p-5">
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end sm:items-center justify-center sm:p-4" id="modal-overlay">
+      <div class="scale-in bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-sm p-5 max-h-[88vh] overflow-y-auto">
         <div class="flex items-center justify-between mb-4">
           <h3 class="font-bold text-odoo-deep">Confirmar cobro</h3>
           <button data-action="close-modal">${icon('x', 'w-4 h-4 text-gray-400')}</button>
@@ -726,8 +774,8 @@ function showReceipt(sale) {
 
   const modal = document.getElementById('modal-root');
   modal.innerHTML = `
-    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-center justify-center p-4" id="modal-overlay">
-      <div class="scale-in bg-white rounded-xl w-full max-w-sm p-5">
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end sm:items-center justify-center sm:p-4" id="modal-overlay">
+      <div class="scale-in bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-sm p-5 max-h-[88vh] overflow-y-auto">
         <div class="flex items-center justify-between mb-3">
           <h3 class="font-bold text-odoo-deep flex items-center gap-2">${icon('check-circle-2', 'w-4 h-4 text-emerald-500')} Venta completada</h3>
           <button data-action="close-modal">${icon('x', 'w-4 h-4 text-gray-400')}</button>
@@ -752,16 +800,16 @@ function inventoryHTML() {
   const q = state.inv.search.toLowerCase();
   const list = state.products.filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
   return `
-    <div class="flex items-center gap-2 mb-4">
-      <div class="relative flex-1 max-w-sm">
+    <div class="flex flex-wrap items-center gap-2 mb-4">
+      <div class="relative flex-1 min-w-[160px] sm:max-w-sm">
         ${icon('search', 'w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2')}
         <input id="inv-search" placeholder="Buscar producto, SKU o categoría..." value="${esc(state.inv.search)}"
           class="w-full pl-9 pr-3 py-2.5 rounded-lg border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-odoo-purple/30" />
       </div>
-      <button data-action="open-transfer" class="px-4 py-2.5 rounded-lg text-xs font-semibold border border-gray-200 bg-white hover:border-odoo-purple flex items-center gap-1.5">${icon('arrow-left-right', 'w-3.5 h-3.5')} Transferir stock</button>
-      <button data-action="open-new-product" class="px-4 py-2.5 rounded-lg text-xs font-bold text-white bg-odoo-purple hover:bg-odoo-dark flex items-center gap-1.5">${icon('plus', 'w-3.5 h-3.5')} Nuevo producto</button>
+      <button data-action="open-transfer" class="px-3 sm:px-4 py-2.5 rounded-lg text-xs font-semibold border border-gray-200 bg-white hover:border-odoo-purple flex items-center gap-1.5">${icon('arrow-left-right', 'w-3.5 h-3.5')} <span class="hidden sm:inline">Transferir stock</span></button>
+      <button data-action="open-new-product" class="px-3 sm:px-4 py-2.5 rounded-lg text-xs font-bold text-white bg-odoo-purple hover:bg-odoo-dark flex items-center gap-1.5">${icon('plus', 'w-3.5 h-3.5')} <span class="hidden sm:inline">Nuevo producto</span></button>
     </div>
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="hidden lg:block bg-white rounded-2xl shadow-sm shadow-gray-200/70 overflow-hidden overflow-x-auto">
       <table class="w-full text-xs">
         <thead>
           <tr class="bg-gray-50 text-gray-400 uppercase text-[10px] tracking-wide">
@@ -777,7 +825,29 @@ function inventoryHTML() {
         <tbody id="inv-tbody">${inventoryRowsHTML(list)}</tbody>
       </table>
     </div>
+    <div class="lg:hidden flex flex-col gap-2" id="inv-cards">${inventoryCardsHTML(list)}</div>
   `;
+}
+function inventoryCardsHTML(list) {
+  if (list.length === 0) return `<p class="text-center text-gray-400 text-xs py-10">Sin productos que coincidan.</p>`;
+  return list.map((p) => {
+    const total = totalStock(p.id);
+    const low = total < p.minStock;
+    const stockLine = state.warehouses.map((w) => `${esc(w.name)} ${stockFor(p.id, w.id)}`).join(' · ');
+    return `<div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4" data-action="open-edit-product" data-id="${p.id}">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="text-sm font-semibold truncate">${esc(p.name)}</div>
+          <div class="text-[11px] text-gray-400 mt-0.5">${esc(p.sku)} · ${esc(p.category)} · ${money(p.price)}</div>
+        </div>
+        <button data-action="delete-product" data-id="${p.id}" class="p-2 -m-2 text-gray-300 shrink-0">${icon('trash-2', 'w-4 h-4')}</button>
+      </div>
+      <div class="flex items-center justify-between mt-2.5 text-xs">
+        <span class="text-gray-500">${stockLine}</span>
+        <span class="num font-bold shrink-0 ml-2 ${low ? 'text-amber-600' : 'text-odoo-deep'}">${total}${low ? ' ⚠' : ''}</span>
+      </div>
+    </div>`;
+  }).join('');
 }
 function inventoryRowsHTML(list) {
   if (list.length === 0) return `<tr><td colspan="8" class="text-center text-gray-400 py-10">Sin productos que coincidan.</td></tr>`;
@@ -820,8 +890,8 @@ function renderProductModal() {
     <input id="${id}" type="${type}" ${step ? `step="${step}"` : ''} value="${esc(f[id.slice(3)])}" class="mt-1 w-full px-3 py-2 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-odoo-purple/30" />
   </label>`;
   document.getElementById('modal-root').innerHTML = `
-    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-center justify-center p-4" id="modal-overlay">
-      <div class="scale-in bg-white rounded-xl w-full max-w-sm p-5 max-h-[90vh] overflow-y-auto">
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end sm:items-center justify-center sm:p-4" id="modal-overlay">
+      <div class="scale-in bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-sm p-5 max-h-[88vh] overflow-y-auto">
         <div class="flex items-center justify-between mb-4">
           <h3 class="font-bold text-odoo-deep">${state.inv.editing ? 'Editar producto' : 'Nuevo producto'}</h3>
           <button data-action="close-modal">${icon('x', 'w-4 h-4 text-gray-400')}</button>
@@ -869,8 +939,8 @@ function openTransfer() {
   if (state.warehouses.length < 2) { toast('Se necesitan al menos 2 almacenes', 'warn'); return; }
   const [w1, w2] = state.warehouses;
   document.getElementById('modal-root').innerHTML = `
-    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-center justify-center p-4" id="modal-overlay">
-      <div class="scale-in bg-white rounded-xl w-full max-w-sm p-5">
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end sm:items-center justify-center sm:p-4" id="modal-overlay">
+      <div class="scale-in bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-sm p-5 max-h-[88vh] overflow-y-auto">
         <div class="flex items-center justify-between mb-4">
           <h3 class="font-bold text-odoo-deep flex items-center gap-2">${icon('arrow-left-right', 'w-4 h-4')} Transferir stock</h3>
           <button data-action="close-modal">${icon('x', 'w-4 h-4 text-gray-400')}</button>
@@ -940,28 +1010,28 @@ function accountingHTML() {
   const byMethod = {};
   state.transactions.forEach((t) => { const sign = t.type === 'income' ? 1 : -1; byMethod[t.paymentMethod] = (byMethod[t.paymentMethod] || 0) + sign * t.amount; });
   return `
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-5">
-      <div class="bg-white rounded-xl border border-gray-200 p-4">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+      <div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4">
         <div class="text-[10px] uppercase text-gray-400 font-semibold mb-1">Ingresos totales</div>
         <div class="num text-lg font-bold text-odoo-teal">${money(income)}</div>
       </div>
-      <div class="bg-white rounded-xl border border-gray-200 p-4">
+      <div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4">
         <div class="text-[10px] uppercase text-gray-400 font-semibold mb-1">Gastos totales</div>
         <div class="num text-lg font-bold text-amber-600">${money(expense)}</div>
       </div>
       ${PAY_METHODS.slice(0, 2).map((m) => `
-        <div class="bg-white rounded-xl border border-gray-200 p-4">
+        <div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-4">
           <div class="text-[10px] uppercase text-gray-400 font-semibold mb-1">Flujo neto · ${PAY_LABEL[m]}</div>
           <div class="num text-lg font-bold" style="color:${PAY_COLOR[m]}">${money(byMethod[m] || 0)}</div>
         </div>`).join('')}
     </div>
-    <div class="flex items-center justify-between mb-3">
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
       <div class="flex items-center gap-1 bg-white rounded-lg border border-gray-200 p-1">
         ${['todos', 'income', 'expense'].map((f) => `<button data-action="acct-filter" data-filter="${f}" class="tab-btn ${state.acct.filter === f ? 'active' : ''} px-3 py-1.5 rounded-md text-xs font-medium text-gray-500">${f === 'todos' ? 'Todos' : f === 'income' ? 'Ingresos' : 'Gastos'}</button>`).join('')}
       </div>
-      <button data-action="open-expense" class="px-4 py-2.5 rounded-lg text-xs font-bold text-white bg-odoo-purple hover:bg-odoo-dark flex items-center gap-1.5">${icon('plus', 'w-3.5 h-3.5')} Nuevo gasto</button>
+      <button data-action="open-expense" class="px-3 sm:px-4 py-2.5 rounded-lg text-xs font-bold text-white bg-odoo-purple hover:bg-odoo-dark flex items-center gap-1.5">${icon('plus', 'w-3.5 h-3.5')} <span class="hidden sm:inline">Nuevo gasto</span></button>
     </div>
-    <div class="bg-white rounded-xl border border-gray-200 overflow-hidden">
+    <div class="hidden lg:block bg-white rounded-2xl shadow-sm shadow-gray-200/70 overflow-hidden overflow-x-auto">
       <table class="w-full text-xs">
         <thead>
           <tr class="bg-gray-50 text-gray-400 uppercase text-[10px] tracking-wide">
@@ -984,12 +1054,22 @@ function accountingHTML() {
         </tbody>
       </table>
     </div>
+    <div class="lg:hidden flex flex-col gap-2">
+      ${filtered.length === 0 ? `<p class="text-center text-gray-400 text-xs py-10">No hay movimientos registrados.</p>` :
+        filtered.map((t) => `<div class="bg-white rounded-2xl shadow-sm shadow-gray-200/70 p-3 flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="text-xs font-medium truncate">${esc(t.description)}</div>
+            <div class="text-[10px] text-gray-400 font-mono mt-0.5">${fmtDate(t.date)} · ${esc(t.category)} · ${PAY_LABEL[t.paymentMethod] || t.paymentMethod}</div>
+          </div>
+          <span class="num text-sm font-bold shrink-0 ${t.type === 'income' ? 'text-odoo-teal' : 'text-rose-600'}">${t.type === 'income' ? '+' : '-'}${money(t.amount)}</span>
+        </div>`).join('')}
+    </div>
   `;
 }
 function openExpenseModal() {
   document.getElementById('modal-root').innerHTML = `
-    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-center justify-center p-4" id="modal-overlay">
-      <div class="scale-in bg-white rounded-xl w-full max-w-sm p-5">
+    <div class="fixed inset-0 z-50 bg-odoo-deep/40 flex items-end sm:items-center justify-center sm:p-4" id="modal-overlay">
+      <div class="scale-in bg-white rounded-t-2xl sm:rounded-xl w-full sm:max-w-sm p-5 max-h-[88vh] overflow-y-auto">
         <div class="flex items-center justify-between mb-4">
           <h3 class="font-bold text-odoo-deep">Registrar gasto</h3>
           <button data-action="close-modal">${icon('x', 'w-4 h-4 text-gray-400')}</button>
@@ -1101,6 +1181,11 @@ document.addEventListener('click', (e) => {
     case 'acct-filter': state.acct.filter = t.dataset.filter; renderView(); break;
     case 'open-expense': openExpenseModal(); break;
     case 'save-expense': saveExpense(); break;
+    case 'open-mobile-cart': openMobileCart(); break;
+    case 'open-more-sheet': openMoreSheet(); break;
+    case 'export-data': closeModal(); exportData(); break;
+    case 'trigger-import': closeModal(); document.getElementById('import-file').click(); break;
+    case 'mobile-install': closeModal(); doInstall(); break;
   }
 });
 
@@ -1112,8 +1197,10 @@ document.addEventListener('input', (e) => {
     const q = state.inv.search.toLowerCase();
     const list = state.products.filter((p) => p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q) || p.category.toLowerCase().includes(q));
     const tbody = document.getElementById('inv-tbody'); if (tbody) tbody.innerHTML = inventoryRowsHTML(list);
+    const cards = document.getElementById('inv-cards'); if (cards) cards.innerHTML = inventoryCardsHTML(list);
+    refreshIcons();
   }
-  else if (id === 'pos-taxrate') { persistSetting('taxRate', Number(e.target.value) || 0).then(() => renderView()); }
+  else if (id === 'pos-taxrate') { persistSetting('taxRate', Number(e.target.value) || 0).then(() => { renderView(); if (isMobileCartOpen()) openMobileCart(); }); }
   else if (id && id.startsWith('pf-')) { state.inv.form[id.slice(3)] = e.target.value; }
 });
 document.addEventListener('change', (e) => {
