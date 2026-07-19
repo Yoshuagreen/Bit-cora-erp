@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Generador de claves — Bitácora (uso privado)</title>
+<style>
+  body{ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif; background:#0A211C; color:#EAF4F1; min-height:100vh; margin:0; display:flex; align-items:center; justify-content:center; padding:20px;}
+  .card{ background:#0F6157; border-radius:16px; padding:30px; max-width:440px; width:100%; box-shadow:0 20px 60px rgba(0,0,0,.4);}
+  h1{ font-size:19px; margin:0 0 4px;}
+  p.sub{ font-size:13px; color:#C7DEDA; margin:0 0 22px; line-height:1.5;}
+  label{ font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:#C7DEDA; display:block; margin-bottom:6px;}
+  input{ width:100%; padding:11px 12px; border-radius:8px; border:none; font-size:14px; margin-bottom:14px; box-sizing:border-box;}
+  button{ width:100%; padding:12px; border:none; border-radius:9px; background:#E3A857; color:#241a05; font-weight:700; font-size:14.5px; cursor:pointer;}
+  button:hover{ filter:brightness(1.05); }
+  .result{ margin-top:20px; background:#0A211C; border-radius:10px; padding:16px; text-align:center; display:none;}
+  .result .key{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:24px; font-weight:700; letter-spacing:2px; color:#7CF2C6; word-break:break-all;}
+  .result .lbl{ font-size:11px; color:#C7DEDA; text-transform:uppercase; letter-spacing:.4px; margin-bottom:6px;}
+  .copy-btn{ margin-top:12px; background:#1B4F47; color:#EAF4F1; }
+  .note{ font-size:11.5px; color:#9FC2BA; margin-top:18px; line-height:1.6;}
+  .history{ margin-top:16px; font-size:12px; color:#C7DEDA; max-height:150px; overflow:auto;}
+  .history div{ padding:6px 0; border-bottom:1px solid rgba(255,255,255,.08); font-family:ui-monospace,Menlo,Consolas,monospace;}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Generador de claves de licencia</h1>
+  <p class="sub">Herramienta privada — no la compartas con tus clientes. Genera una clave válida por cada venta.</p>
+
+  <label for="clientRef">Referencia del cliente (opcional, solo para tu registro)</label>
+  <input type="text" id="clientRef" placeholder="Ej. Abarrotes Don Mario - Factura 0032">
+
+  <button id="genBtn">Generar clave de licencia</button>
+
+  <div class="result" id="result">
+    <div class="lbl">Clave generada</div>
+    <div class="key" id="keyOut"></div>
+    <button class="copy-btn" id="copyBtn">Copiar clave</button>
+  </div>
+
+  <div class="history" id="history"></div>
+
+  <div class="note">
+    Cada clave generada aquí es válida en el sistema Bitácora. Si cambiaste el valor de <code>LICENSE_SALT</code> en el HTML de la app, cámbialo también aquí (línea marcada abajo) para que coincidan.
+  </div>
+</div>
+
+<script>
+  // Debe coincidir exactamente con LICENSE_SALT del archivo principal (bitacora-caja.html)
+  const LICENSE_SALT = 7349;
+
+  function randomBody(){
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let s = "";
+    for(let i=0;i<11;i++) s += chars[Math.floor(Math.random()*chars.length)];
+    return s;
+  }
+  function checkChar(body){
+    let sum = 0;
+    for(let i=0;i<body.length;i++){
+      sum += body.charCodeAt(i) * (i+1) * LICENSE_SALT;
+    }
+    return (sum % 36).toString(36).toUpperCase();
+  }
+  function formatKey(key){
+    return key.match(/.{1,4}/g).join("-");
+  }
+
+  let history = [];
+
+  document.getElementById("genBtn").addEventListener("click", ()=>{
+    const body = randomBody();
+    const key = body + checkChar(body);
+    const formatted = formatKey(key);
+    document.getElementById("keyOut").textContent = formatted;
+    document.getElementById("result").style.display = "block";
+
+    const ref = document.getElementById("clientRef").value.trim();
+    const entry = document.createElement("div");
+    entry.textContent = formatted + (ref ? "  —  " + ref : "");
+    document.getElementById("history").prepend(entry);
+    history.push({key: formatted, ref, date: new Date().toLocaleString("es-MX")});
+  });
+
+  document.getElementById("copyBtn").addEventListener("click", ()=>{
+    const text = document.getElementById("keyOut").textContent;
+    navigator.clipboard.writeText(text).then(()=>{
+      const btn = document.getElementById("copyBtn");
+      const original = btn.textContent;
+      btn.textContent = "¡Copiada!";
+      setTimeout(()=> btn.textContent = original, 1500);
+    });
+  });
+</script>
+</body>
+</html>
