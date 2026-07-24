@@ -1,0 +1,1884 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Bitácora · Caja, Inventario y Contabilidad</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+  :root{
+    --bg:#EEF2EF;
+    --surface:#FFFFFF;
+    --surface-2:#E6EBE7;
+    --ink:#182420;
+    --ink-soft:#52625B;
+    --ink-faint:#8B978F;
+    --primary:#0F6157;
+    --primary-dark:#0A4842;
+    --primary-tint:#DCEEEA;
+    --accent:#E3A857;
+    --accent-dark:#B9822F;
+    --danger:#C1483B;
+    --danger-tint:#F8E3DF;
+    --success:#2E8B6F;
+    --border:#DCE3DF;
+    --radius:12px;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --shadow: 0 1px 2px rgba(15,97,87,.06), 0 4px 16px rgba(15,97,87,.06);
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    font-family:var(--sans);
+    background:var(--bg);
+    color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{ background:var(--accent); color:#1a1200; }
+  button{font-family:inherit;}
+  input,select{font-family:inherit;}
+
+  /* ---------- Layout shell ---------- */
+  .app{
+    display:flex;
+    min-height:100vh;
+  }
+  .sidebar{
+    width:224px;
+    flex-shrink:0;
+    background:var(--primary-dark);
+    color:#EAF4F1;
+    display:flex;
+    flex-direction:column;
+    padding:20px 14px;
+    position:sticky;
+    top:0;
+    height:100vh;
+  }
+  .brand{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:6px 8px 22px 8px;
+  }
+  .brand-mark{
+    width:34px;height:34px;border-radius:9px;
+    background:linear-gradient(155deg,var(--accent),#c98f3c);
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--mono); font-weight:700; color:#241a05; font-size:16px;
+    flex-shrink:0;
+  }
+  .brand-text b{ display:block; font-size:16.5px; letter-spacing:.2px;}
+  .brand-text span{ display:block; font-size:11px; color:#9FC2BA; letter-spacing:.4px; text-transform:uppercase;}
+
+  nav.tabs{ display:flex; flex-direction:column; gap:4px; margin-top:6px;}
+  .tab-btn{
+    display:flex; align-items:center; gap:11px;
+    padding:10px 12px;
+    border:none; background:transparent; color:#C7DEDA;
+    border-radius:9px; cursor:pointer; text-align:left;
+    font-size:14.5px; font-weight:500;
+    transition:background .15s ease, color .15s ease;
+  }
+  .tab-btn svg{ width:18px;height:18px; flex-shrink:0; opacity:.9;}
+  .tab-btn:hover{ background:rgba(255,255,255,.06); color:#fff;}
+  .tab-btn.active{ background:var(--accent); color:#241a05; font-weight:700;}
+  .tab-btn.active svg{ opacity:1;}
+
+  .sidebar-foot{
+    margin-top:auto; padding:12px 8px 4px;
+    font-size:11px; color:#7FA69D; line-height:1.5;
+  }
+  .sidebar-foot b{ color:#B9D6D0; }
+
+  .main{
+    flex:1;
+    min-width:0;
+    padding:26px 30px 90px;
+  }
+  .view{ display:none; }
+  .view.active{ display:block; animation:fade .18s ease; }
+  @keyframes fade{ from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:none;} }
+
+  .page-head{
+    display:flex; align-items:baseline; justify-content:space-between;
+    margin-bottom:20px; flex-wrap:wrap; gap:10px;
+  }
+  .page-head h1{
+    font-size:22px; margin:0; letter-spacing:-.2px;
+  }
+  .page-head p{ margin:2px 0 0; color:var(--ink-soft); font-size:13.5px;}
+
+  /* ---------- Cards / generic ---------- */
+  .card{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+  }
+  .btn{
+    display:inline-flex; align-items:center; justify-content:center; gap:8px;
+    border:1px solid transparent;
+    border-radius:9px;
+    padding:10px 16px;
+    font-size:13.5px; font-weight:600;
+    cursor:pointer;
+    transition:transform .06s ease, filter .15s ease, background .15s ease;
+    white-space:nowrap;
+  }
+  .btn:active{ transform:translateY(1px); }
+  .btn-primary{ background:var(--primary); color:#fff; }
+  .btn-primary:hover{ background:var(--primary-dark); }
+  .btn-accent{ background:var(--accent); color:#241a05; }
+  .btn-accent:hover{ filter:brightness(1.05); }
+  .btn-ghost{ background:var(--surface); color:var(--ink); border-color:var(--border); }
+  .btn-ghost:hover{ background:var(--surface-2); }
+  .btn-danger{ background:var(--danger-tint); color:var(--danger); }
+  .btn-danger:hover{ background:#f2cec7; }
+  .btn-sm{ padding:6px 10px; font-size:12.5px; border-radius:7px;}
+  .btn-block{ width:100%; }
+  .btn[disabled]{ opacity:.5; cursor:not-allowed; }
+
+  label{ font-size:12px; font-weight:600; color:var(--ink-soft); display:block; margin-bottom:5px; letter-spacing:.1px;}
+  input[type=text], input[type=number], input[type=search], select, input[type=file]{
+    width:100%;
+    padding:9px 11px;
+    border:1px solid var(--border);
+    border-radius:8px;
+    font-size:14px;
+    background:#fff;
+    color:var(--ink);
+    outline:none;
+    transition:border-color .12s ease, box-shadow .12s ease;
+  }
+  input:focus, select:focus{
+    border-color:var(--primary);
+    box-shadow:0 0 0 3px var(--primary-tint);
+  }
+  .field{ margin-bottom:13px; }
+  .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:13px; }
+  .grid-3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:13px; }
+
+  table{ width:100%; border-collapse:collapse; font-size:13.5px; }
+  thead th{
+    text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.4px;
+    color:var(--ink-soft); padding:10px 12px; border-bottom:1px solid var(--border);
+    background:var(--surface-2);
+  }
+  tbody td{ padding:10px 12px; border-bottom:1px solid var(--border); vertical-align:middle;}
+  tbody tr:last-child td{ border-bottom:none; }
+  tbody tr:hover{ background:#FAFCFB; }
+  .table-wrap{ overflow-x:auto; }
+  .muted{ color:var(--ink-faint); }
+  .pill{
+    display:inline-flex; align-items:center; gap:5px;
+    padding:3px 9px; border-radius:99px; font-size:11.5px; font-weight:700;
+  }
+  .pill-ok{ background:#E1F1EA; color:var(--success); }
+  .pill-low{ background:var(--danger-tint); color:var(--danger); }
+  .num{ font-family:var(--mono); }
+  .empty-state{
+    text-align:center; padding:40px 20px; color:var(--ink-faint);
+  }
+  .empty-state svg{ width:38px; height:38px; opacity:.5; margin-bottom:10px;}
+
+  /* ---------- POS ---------- */
+  .pos-layout{
+    display:grid;
+    grid-template-columns:1fr 340px;
+    gap:20px;
+    align-items:start;
+  }
+  .pos-search{ padding:16px; margin-bottom:16px; }
+  .pos-search .row{ display:flex; gap:10px; }
+  .catalog-head{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-top:14px; margin-bottom:2px;
+  }
+  .catalog-head span{ font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--ink-soft); }
+  .catalog-head .cnt{ font-size:11.5px; color:var(--ink-faint); font-weight:600; }
+  .catalog{
+    max-height:420px; overflow:auto; margin-top:8px; padding-top:10px; border-top:1px solid var(--border);
+    display:grid; grid-template-columns:repeat(auto-fill, minmax(150px,1fr)); gap:10px;
+  }
+  .catalog-item{
+    display:flex; flex-direction:column; justify-content:space-between; gap:8px;
+    padding:12px; border:1px solid var(--border); border-radius:10px; cursor:pointer;
+    background:var(--surface); text-align:left; position:relative;
+    transition:border-color .12s ease, box-shadow .12s ease, transform .06s ease;
+  }
+  .catalog-item:hover{ border-color:var(--primary); box-shadow:0 3px 10px rgba(15,97,87,.12); }
+  .catalog-item:active{ transform:translateY(1px); }
+  .catalog-item.out-of-stock{ opacity:.5; cursor:not-allowed; }
+  .catalog-item .ci-name{ font-weight:700; font-size:13.5px; line-height:1.25; }
+  .catalog-item .ci-meta{ font-size:11px; color:var(--ink-faint); }
+  .catalog-item .ci-bottom{ display:flex; align-items:center; justify-content:space-between; }
+  .catalog-item .ci-price{ font-family:var(--mono); font-weight:700; color:var(--primary-dark); font-size:13.5px; }
+  .catalog-item .ci-stock{ font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:99px; }
+  .catalog-item .ci-stock.ok{ background:#E1F1EA; color:var(--success); }
+  .catalog-item .ci-stock.low{ background:var(--danger-tint); color:var(--danger); }
+  .catalog-item .ci-photo{
+    width:100%; height:84px; border-radius:8px; overflow:hidden;
+    background:var(--surface-2); display:flex; align-items:center; justify-content:center;
+    color:var(--ink-faint); flex-shrink:0;
+  }
+  .catalog-item .ci-photo img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .catalog-item .ci-photo svg{ width:26px; height:26px; opacity:.6; }
+  @keyframes justAdded{
+    0%{ box-shadow:0 0 0 0 rgba(15,97,87,.45); border-color:var(--primary); }
+    100%{ box-shadow:0 0 0 10px rgba(15,97,87,0); border-color:var(--border); }
+  }
+  .catalog-item.just-added{ animation: justAdded .9s ease-out; }
+  .inv-thumb{
+    width:34px; height:34px; border-radius:7px; object-fit:cover; flex-shrink:0;
+    border:1px solid var(--border); background:var(--surface-2);
+  }
+  .inv-thumb-placeholder{
+    width:34px; height:34px; border-radius:7px; background:var(--surface-2); flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; color:var(--ink-faint);
+    border:1px solid var(--border);
+  }
+  .inv-thumb-placeholder svg{ width:16px; height:16px; }
+  .name-cell{ display:flex; align-items:center; gap:9px; }
+  .stock-ctrl{ display:flex; align-items:center; gap:6px; }
+  .stock-ctrl button{
+    width:24px; height:24px; border-radius:6px; border:1px solid var(--border);
+    background:var(--surface-2); cursor:pointer; font-weight:700; line-height:1; flex-shrink:0;
+  }
+  .stock-ctrl button:hover{ background:var(--primary-tint); }
+  .stock-ctrl button:disabled{ opacity:.4; cursor:not-allowed; }
+  .stock-ctrl input{
+    width:52px; text-align:center; padding:5px 2px; font-family:var(--mono); font-weight:700;
+    font-size:13px; border-radius:6px;
+  }
+  .photo-preview-wrap{ margin-top:9px; display:none; }
+  .photo-preview-wrap img{
+    width:100%; max-height:130px; object-fit:cover; border-radius:8px; border:1px solid var(--border);
+    display:block;
+  }
+
+  .cart-card{ padding:0; }
+  .cart-card .table-wrap{ max-height:420px; overflow:auto; }
+  .qty-ctrl{ display:flex; align-items:center; gap:6px; }
+  .qty-ctrl button{
+    width:24px; height:24px; border-radius:6px; border:1px solid var(--border);
+    background:var(--surface-2); cursor:pointer; font-weight:700; line-height:1;
+  }
+  .qty-ctrl span{ min-width:22px; text-align:center; font-family:var(--mono); font-weight:700;}
+  .rm-btn{ background:none; border:none; cursor:pointer; color:var(--danger); font-size:16px; }
+
+  .pos-panel{ position:sticky; top:20px; display:flex; flex-direction:column; gap:14px; }
+  .ledger-display{
+    background:linear-gradient(180deg,#0B2721,#0A211C);
+    border-radius:14px;
+    padding:18px 18px 16px;
+    box-shadow:inset 0 2px 10px rgba(0,0,0,.4);
+  }
+  .ledger-label{
+    font-size:10.5px; letter-spacing:1.6px; color:var(--accent);
+    text-transform:uppercase; font-weight:700; margin-bottom:6px;
+  }
+  .ledger-amount{
+    font-family:var(--mono); font-weight:700; font-size:34px;
+    color:#7CF2C6; text-shadow:0 0 14px rgba(124,242,198,.45);
+    letter-spacing:.5px;
+  }
+  .pay-methods{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+  .pay-btn{
+    border:1px solid var(--border); background:var(--surface); border-radius:9px;
+    padding:9px 4px; font-size:12px; font-weight:700; cursor:pointer; text-align:center;
+    color:var(--ink-soft);
+  }
+  .pay-btn.active{ background:var(--primary); color:#fff; border-color:var(--primary); }
+  .change-box{
+    display:flex; justify-content:space-between; align-items:center;
+    background:var(--surface-2); border-radius:8px; padding:9px 12px;
+    font-size:13px; font-weight:700;
+  }
+  .change-box.negative{ background:var(--danger-tint); color:var(--danger); }
+  .change-box.positive{ color:var(--success); }
+
+  /* ---------- Inventory ---------- */
+  .inv-layout{ display:grid; grid-template-columns:320px 1fr; gap:20px; align-items:start; }
+  .inv-form{ padding:18px; position:sticky; top:20px; }
+  .inv-form h3{ margin:0; font-size:15px; }
+  .inv-form-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .inv-form-head.has-body{ margin-bottom:0; }
+  #invFormBody{ margin-top:14px; }
+  .inv-form-toggle{
+    background:var(--surface-2); border:1px solid var(--border); border-radius:8px;
+    width:30px; height:30px; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; color:var(--ink-soft); flex-shrink:0; transition:transform .18s ease, background .15s ease;
+  }
+  .inv-form-toggle:hover{ background:var(--primary-tint); color:var(--primary-dark); }
+  .inv-form-toggle svg{ width:16px; height:16px; transition:transform .18s ease; }
+  .inv-form-toggle.open svg{ transform:rotate(180deg); }
+  .stock-flag{ display:flex; align-items:center; gap:6px; }
+  .stock-flag .dot{ width:8px; height:8px; border-radius:50%; }
+  .dot-ok{ background:var(--success); }
+  .dot-low{ background:var(--danger); }
+
+  /* ---------- Accounting ---------- */
+  .stats-row{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:20px; }
+  .stat-card{ padding:16px 18px; }
+  .stat-card .stat-label{ font-size:11.5px; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-soft); font-weight:700; }
+  .stat-card .stat-value{ font-family:var(--mono); font-size:26px; font-weight:700; margin-top:6px; color:var(--primary-dark); }
+  .stat-card.accent .stat-value{ color:var(--accent-dark); }
+  .sale-items-list{ font-size:12px; color:var(--ink-soft); }
+
+  /* ---------- Backup ---------- */
+  .backup-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+  .backup-card{ padding:20px; text-align:left; }
+  .backup-card svg{ width:26px; height:26px; color:var(--primary); margin-bottom:10px; }
+  .backup-card h3{ margin:0 0 5px; font-size:15px; }
+  .backup-card p{ margin:0 0 14px; font-size:12.5px; color:var(--ink-soft); line-height:1.5; }
+
+  .snapshot-row{
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:11px 4px; border-bottom:1px dashed var(--border); flex-wrap:wrap;
+  }
+  .snapshot-row:last-child{ border-bottom:none; }
+  .snapshot-row .sr-meta{ font-size:12.5px; }
+  .snapshot-row .sr-date{ font-weight:700; }
+  .snapshot-row .sr-count{ color:var(--ink-faint); font-size:11.5px; }
+  .snapshot-tag{
+    font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.4px;
+    padding:2px 7px; border-radius:99px; background:var(--primary-tint); color:var(--primary-dark);
+    margin-left:7px;
+  }
+
+  #toast{
+    position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px);
+    background:var(--ink); color:#fff; padding:11px 18px; border-radius:9px;
+    font-size:13.5px; font-weight:600; opacity:0; pointer-events:none;
+    transition:opacity .2s ease, transform .2s ease; z-index:999; box-shadow:0 8px 24px rgba(0,0,0,.25);
+    display:flex; align-items:center; gap:8px;
+  }
+  #toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  #toast.err{ background:var(--danger); }
+  #toast.ok{ background:var(--primary-dark); }
+
+  /* ---------- Modal ---------- */
+  .modal-bg{
+    position:fixed; inset:0; background:rgba(10,20,18,.45);
+    display:none; align-items:center; justify-content:center; z-index:900; padding:20px;
+  }
+  .modal-bg.show{ display:flex; }
+  .modal{
+    background:#fff; border-radius:14px; padding:22px; max-width:380px; width:100%;
+    box-shadow:0 20px 60px rgba(0,0,0,.25);
+  }
+  .modal h3{ margin:0 0 8px; font-size:16px; }
+  .modal p{ margin:0 0 18px; font-size:13.5px; color:var(--ink-soft); line-height:1.5; }
+  .modal .row{ display:flex; gap:10px; justify-content:flex-end; }
+
+  /* ---------- Bottom tab bar (mobile) ---------- */
+  .bottombar{ display:none; }
+
+  @media (max-width: 980px){
+    .pos-layout{ grid-template-columns:1fr; }
+    .inv-layout{ grid-template-columns:1fr; }
+    .stats-row{ grid-template-columns:1fr 1fr; }
+    .backup-grid{ grid-template-columns:1fr 1fr; }
+  }
+  @media (max-width: 720px){
+    .sidebar{ display:none; }
+    .main{ padding:16px 14px 90px; }
+    .stats-row{ grid-template-columns:1fr; }
+    .backup-grid{ grid-template-columns:1fr; }
+    .grid-2, .grid-3{ grid-template-columns:1fr; }
+    .bottombar{
+      display:flex; position:fixed; bottom:0; left:0; right:0; z-index:100;
+      background:var(--primary-dark); padding:6px 4px calc(env(safe-area-inset-bottom,0px) + 6px);
+      justify-content:space-around;
+    }
+    .bottombar button{
+      background:none; border:none; color:#B9D6D0; display:flex; flex-direction:column; align-items:center;
+      gap:2px; font-size:10.5px; padding:6px 4px; border-radius:8px; flex:1;
+    }
+    .bottombar button svg{ width:19px; height:19px; }
+    .bottombar button.active{ color:var(--accent); }
+    .page-head h1{ font-size:19px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app" id="appRoot">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">B</div>
+      <div class="brand-text"><b>Bitácora</b><span>Caja &amp; Stock</span></div>
+    </div>
+    <nav class="tabs" id="navTabs">
+      <button class="tab-btn active" data-view="pos">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1.5-5h15L21 9M3 9h18M3 9v10a1 1 0 001 1h16a1 1 0 001-1V9M8 13h3"/></svg>
+        Caja
+      </button>
+      <button class="tab-btn" data-view="inventario">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg>
+        Inventario
+      </button>
+      <button class="tab-btn" data-view="contabilidad">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18M7 15l4-5 3 3 5-7"/></svg>
+        Contabilidad
+      </button>
+      <button class="tab-btn" data-view="respaldo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+        Respaldo
+      </button>
+    </nav>
+    <div class="sidebar-foot">
+      Datos guardados en <b>este navegador</b>.<br>Funciona 100% sin internet.
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- ==================== POS ==================== -->
+    <section class="view active" id="view-pos">
+      <div class="page-head">
+        <div><h1>Punto de venta</h1><p>Busca un producto, arma el carrito y cobra.</p></div>
+      </div>
+
+      <div class="pos-layout">
+        <div>
+          <div class="card pos-search">
+            <label for="posSearch">Buscar por nombre o código</label>
+            <div class="row">
+              <input type="search" id="posSearch" placeholder="Ej. Coca Cola 600ml o código 00123" autocomplete="off">
+              <button class="btn btn-primary" id="posSearchBtn">Buscar</button>
+            </div>
+            <div class="catalog-head">
+              <span>Productos</span>
+              <span class="cnt" id="catalogCount"></span>
+            </div>
+            <div class="catalog" id="posCatalog"></div>
+          </div>
+
+          <div class="card cart-card">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr><th>Producto</th><th>Precio</th><th>Cantidad</th><th>Subtotal</th><th></th></tr>
+                </thead>
+                <tbody id="cartBody">
+                  <tr><td colspan="5"><div class="empty-state">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3h2l2.4 12.4A2 2 0 009.36 17H18a2 2 0 002-1.6L21.6 7H6"/></svg>
+                    <div>El carrito está vacío. Busca un producto para comenzar.</div>
+                  </div></td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="pos-panel">
+          <div class="ledger-display">
+            <div class="ledger-label">Total a pagar</div>
+            <div class="ledger-amount" id="posTotal">$0.00</div>
+          </div>
+
+          <div class="card" style="padding:16px;">
+            <label>Método de pago</label>
+            <div class="pay-methods" id="payMethods">
+              <button class="pay-btn active" data-pay="Efectivo">Efectivo</button>
+              <button class="pay-btn" data-pay="Tarjeta">Tarjeta</button>
+              <button class="pay-btn" data-pay="Transferencia">Transf.</button>
+            </div>
+
+            <div id="cashRow" style="margin-top:13px;">
+              <div class="field" style="margin-bottom:9px;">
+                <label for="cashGiven">Pago recibido en efectivo</label>
+                <input type="number" id="cashGiven" min="0" step="0.01" placeholder="0.00">
+              </div>
+              <div class="change-box" id="changeBox">
+                <span>Cambio a devolver</span><span class="num" id="changeAmount">$0.00</span>
+              </div>
+            </div>
+
+            <button class="btn btn-accent btn-block" style="margin-top:16px; font-size:14.5px; padding:13px;" id="finishSaleBtn">Concluir venta</button>
+            <button class="btn btn-ghost btn-block" style="margin-top:8px;" id="clearCartBtn">Vaciar carrito</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== INVENTARIO ==================== -->
+    <section class="view" id="view-inventario">
+      <div class="page-head">
+        <div><h1>Inventario</h1><p>Da de alta productos y controla existencias.</p></div>
+      </div>
+
+      <div class="inv-layout">
+        <div class="card inv-form">
+          <div class="inv-form-head" id="invFormHead">
+            <h3 id="invFormTitle">Nuevo producto</h3>
+            <button type="button" class="inv-form-toggle" id="invFormToggle" aria-label="Mostrar/ocultar formulario">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+          </div>
+          <div id="invFormBody" style="display:none;">
+          <form id="productForm">
+            <input type="hidden" id="editingCode">
+            <div class="field">
+              <label for="pCode">Código / ID único</label>
+              <input type="text" id="pCode" placeholder="Ej. 00123" required>
+            </div>
+            <div class="field">
+              <label for="pName">Nombre</label>
+              <input type="text" id="pName" placeholder="Ej. Coca Cola 600ml" required>
+            </div>
+            <div class="field">
+              <label for="pPhoto">Foto del producto (opcional)</label>
+              <input type="file" id="pPhoto" accept="image/*">
+              <div class="photo-preview-wrap" id="photoPreviewWrap">
+                <img id="photoPreview" alt="Vista previa">
+                <button type="button" class="btn btn-ghost btn-sm" id="removePhotoBtn" style="margin-top:7px;">Quitar foto</button>
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label for="pBuy">Precio de compra</label>
+                <input type="number" id="pBuy" min="0" step="0.01" required>
+              </div>
+              <div class="field">
+                <label for="pSell">Precio de venta</label>
+                <input type="number" id="pSell" min="0" step="0.01" required>
+              </div>
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label for="pStockPrincipal">Stock almacén principal</label>
+                <input type="number" id="pStockPrincipal" min="0" step="1" required>
+              </div>
+              <div class="field">
+                <label for="pStockVenta">Stock almacén de venta</label>
+                <input type="number" id="pStockVenta" min="0" step="1" required>
+              </div>
+            </div>
+            <div class="field">
+              <label for="pMin">Alerta stock mínimo (piso de venta)</label>
+              <input type="number" id="pMin" min="0" step="1" required>
+            </div>
+            <div id="formError" style="color:var(--danger); font-size:12.5px; margin-bottom:10px; display:none;"></div>
+            <button type="submit" class="btn btn-primary btn-block" id="productSubmitBtn">Guardar producto</button>
+            <button type="button" class="btn btn-ghost btn-block" style="margin-top:8px; display:none;" id="cancelEditBtn">Cancelar edición</button>
+          </form>
+          </div>
+        </div>
+
+        <div>
+          <div class="card" style="padding:16px; margin-bottom:16px;">
+            <h3 style="margin:0 0 4px; font-size:15px;">Traspaso entre almacenes</h3>
+            <p style="margin:0 0 14px; font-size:12.5px; color:var(--ink-soft);">Mueve existencias entre el almacén principal y el piso de venta.</p>
+            <div class="field">
+              <label for="transferCode">Producto</label>
+              <select id="transferCode"></select>
+            </div>
+            <div class="grid-2">
+              <div class="field">
+                <label for="transferDir">Dirección</label>
+                <select id="transferDir">
+                  <option value="toVenta">Principal → Venta</option>
+                  <option value="toPrincipal">Venta → Principal</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="transferQty">Cantidad</label>
+                <input type="number" id="transferQty" min="1" step="1" placeholder="0">
+              </div>
+            </div>
+            <div id="transferInfo" class="muted" style="font-size:12px; margin-bottom:10px;"></div>
+            <button class="btn btn-accent btn-block" id="transferBtn">Trasladar existencias</button>
+          </div>
+
+          <div class="card">
+          <div style="padding:14px 16px 0;">
+            <input type="search" id="invSearch" placeholder="Filtrar productos por nombre o código...">
+          </div>
+          <div class="table-wrap" style="padding:14px 16px 16px;">
+            <table>
+              <thead>
+                <tr><th>Código</th><th>Nombre</th><th>P. Compra</th><th>P. Venta</th><th>Almacén ppal.</th><th>Almacén venta</th><th>Mín.</th><th>Estado</th><th></th></tr>
+              </thead>
+              <tbody id="invBody"></tbody>
+            </table>
+          </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== CONTABILIDAD ==================== -->
+    <section class="view" id="view-contabilidad">
+      <div class="page-head">
+        <div><h1>Contabilidad y reportes</h1><p>Desempeño del día e historial de ventas.</p></div>
+      </div>
+
+      <div class="stats-row">
+        <div class="card stat-card">
+          <div class="stat-label">Ingresos de hoy</div>
+          <div class="stat-value" id="statIncome">$0.00</div>
+        </div>
+        <div class="card stat-card accent">
+          <div class="stat-label">Ganancia de hoy</div>
+          <div class="stat-value" id="statProfit">$0.00</div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-label">Ventas realizadas</div>
+          <div class="stat-value" id="statCount">0</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="padding:14px 16px 0; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <h3 style="margin:0; font-size:15px;">Historial de ventas</h3>
+          <input type="search" id="salesSearch" placeholder="Buscar por ID o producto..." style="max-width:260px;">
+        </div>
+        <div class="table-wrap" style="padding:14px 16px 16px;">
+          <table>
+            <thead>
+              <tr><th>ID</th><th>Fecha / hora</th><th>Productos</th><th>Pago</th><th>Total</th></tr>
+            </thead>
+            <tbody id="salesBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== RESPALDO ==================== -->
+    <section class="view" id="view-respaldo">
+      <div class="page-head">
+        <div><h1>Exportación y respaldo</h1><p>Descarga reportes o resguarda toda tu información.</p></div>
+      </div>
+
+      <div class="backup-grid">
+        <div class="card backup-card">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v16H4zM4 9h16M9 9v11"/></svg>
+          <h3>Inventario a Excel</h3>
+          <p>Genera un .xlsx con todos tus productos, precios y existencias.</p>
+          <button class="btn btn-primary btn-block" id="exportExcelBtn">Exportar Excel</button>
+        </div>
+
+        <div class="card backup-card">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 2h9l5 5v15H6zM15 2v5h5"/></svg>
+          <h3>Reporte diario a PDF</h3>
+          <p>Balance del día y lista de transacciones, listo para imprimir.</p>
+          <button class="btn btn-primary btn-block" id="exportPdfBtn">Exportar PDF</button>
+        </div>
+
+        <div class="card backup-card">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>
+          <h3>Copia de seguridad</h3>
+          <p>Descarga un .json con todos tus datos para migrarlos a otra computadora.</p>
+          <button class="btn btn-primary btn-block" id="exportJsonBtn">Descargar respaldo</button>
+        </div>
+
+        <div class="card backup-card">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 21V9m0 0l-4 4m4-4l4 4M4 7V4a1 1 0 011-1h14a1 1 0 011 1v3"/></svg>
+          <h3>Importar respaldo</h3>
+          <p>Restaura productos y ventas desde un archivo .json previamente exportado.</p>
+          <input type="file" id="importFile" accept="application/json" style="margin-bottom:10px;">
+          <button class="btn btn-accent btn-block" id="importJsonBtn">Importar respaldo</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px;">
+        <div style="padding:16px 16px 0; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+          <div>
+            <h3 style="margin:0 0 3px; font-size:15px;">Copias de seguridad automáticas</h3>
+            <p style="margin:0; font-size:12.5px; color:var(--ink-soft);">Bitácora guarda una copia local antes de acciones importantes (eliminar producto, restaurar respaldo) y periódicamente. Úsalas para deshacer un error sin perder todo tu trabajo.</p>
+          </div>
+          <button class="btn btn-ghost btn-sm" id="createSnapshotBtn">Crear copia ahora</button>
+        </div>
+        <div style="padding:14px 16px 16px;" id="snapshotList"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<div class="bottombar" id="bottomBar">
+  <button class="active" data-view="pos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1.5-5h15L21 9M3 9h18M3 9v10a1 1 0 001 1h16a1 1 0 001-1V9"/></svg>Caja</button>
+  <button data-view="inventario"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8"/></svg>Stock</button>
+  <button data-view="contabilidad"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18M7 15l4-5 3 3 5-7"/></svg>Reportes</button>
+  <button data-view="respaldo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3a1 1 0 001 1h14a1 1 0 001-1v-3"/></svg>Respaldo</button>
+</div>
+
+<div id="toast"></div>
+
+<div class="modal-bg" id="confirmModal">
+  <div class="modal">
+    <h3 id="confirmTitle">¿Confirmar?</h3>
+    <p id="confirmText"></p>
+    <div class="row">
+      <button class="btn btn-ghost" id="confirmCancel">Cancelar</button>
+      <button class="btn btn-danger" id="confirmOk">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ============ Storage layer ============ */
+  const DB_PRODUCTS = "bitacora_products";
+  const DB_SALES = "bitacora_sales";
+  const DB_SNAPSHOTS = "bitacora_autobackups";
+  const MAX_SNAPSHOTS = 6;
+
+  function migrateProduct(p){
+    // Compatibilidad con respaldos antiguos que tenían un solo campo "stock"
+    if(p && typeof p.stock !== "undefined" && typeof p.stockVenta === "undefined"){
+      p.stockVenta = p.stock;
+      p.stockPrincipal = 0;
+      delete p.stock;
+    }
+    if(typeof p.stockPrincipal !== "number" || isNaN(p.stockPrincipal)) p.stockPrincipal = 0;
+    if(typeof p.stockVenta !== "number" || isNaN(p.stockVenta)) p.stockVenta = 0;
+    return p;
+  }
+  // Las fotos se guardan aparte (ver IndexedDB más abajo). Si vienen incrustadas
+  // en el producto (respaldos viejos), las extraemos para no volver a guardar
+  // TODA la lista de productos con TODAS las fotos cada vez que cambia un stock.
+  function extractInlinePhotos(list){
+    const found = {};
+    list.forEach(p=>{
+      if(p && p.photo){ found[p.code] = p.photo; delete p.photo; }
+    });
+    return found;
+  }
+  function loadProducts(){
+    try{
+      const list = JSON.parse(localStorage.getItem(DB_PRODUCTS)) || [];
+      return list.map(migrateProduct);
+    }
+    catch(e){ return []; }
+  }
+  function saveProducts(list){
+    try{
+      localStorage.setItem(DB_PRODUCTS, JSON.stringify(list));
+      return true;
+    }catch(e){
+      toast("No se pudo guardar: el almacenamiento del navegador está lleno. Intenta eliminar productos antiguos o copias de seguridad viejas.", "err");
+      return false;
+    }
+  }
+  function loadSales(){
+    try{ return JSON.parse(localStorage.getItem(DB_SALES)) || []; }
+    catch(e){ return []; }
+  }
+  function saveSales(list){ localStorage.setItem(DB_SALES, JSON.stringify(list)); }
+
+  /* ---- Fotos: IndexedDB (mucho más espacio y no bloquea al guardar inventario) ---- */
+  const IDB_NAME = "bitacora_db";
+  const IDB_STORE = "photos";
+  let idbPromise = null;
+
+  // Red de seguridad: si una promesa no responde en "ms", seguimos con "fallback"
+  // en vez de dejar la app esperando para siempre (pasa en algunos navegadores
+  // móviles donde IndexedDB ni avisa éxito ni error).
+  function withTimeout(promise, ms, fallback){
+    return new Promise((resolve)=>{
+      let done = false;
+      const timer = setTimeout(()=>{ if(!done){ done = true; resolve(fallback); } }, ms);
+      promise.then(v=>{ if(!done){ done = true; clearTimeout(timer); resolve(v); } })
+             .catch(()=>{ if(!done){ done = true; clearTimeout(timer); resolve(fallback); } });
+    });
+  }
+
+  function openIDBRaw(){
+    return new Promise((resolve)=>{
+      try{
+        if(!window.indexedDB){ resolve(null); return; }
+        const req = indexedDB.open(IDB_NAME, 1);
+        req.onupgradeneeded = (e)=>{
+          const db = e.target.result;
+          if(!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+        };
+        req.onsuccess = (e)=> resolve(e.target.result);
+        req.onerror = ()=> resolve(null); // sin IndexedDB, degradamos sin fotos en vez de romper la app
+        req.onblocked = ()=> resolve(null);
+      }catch(e){
+        resolve(null); // algunos navegadores (modo privado, ciertos file://) lanzan aquí en vez de onerror
+      }
+    });
+  }
+  function getIDB(){
+    if(idbPromise) return idbPromise;
+    idbPromise = withTimeout(openIDBRaw(), 1500, null);
+    return idbPromise;
+  }
+  async function idbGetAllPhotos(){
+    const db = await getIDB();
+    if(!db) return {};
+    const raw = new Promise((resolve)=>{
+      const result = {};
+      try{
+        const tx = db.transaction(IDB_STORE, "readonly");
+        const store = tx.objectStore(IDB_STORE);
+        const req = store.openCursor();
+        req.onsuccess = (e)=>{
+          const cursor = e.target.result;
+          if(cursor){ result[cursor.key] = cursor.value; cursor.continue(); }
+          else resolve(result);
+        };
+        req.onerror = ()=> resolve(result);
+      }catch(e){ resolve(result); }
+    });
+    return withTimeout(raw, 2500, {});
+  }
+  async function idbSetPhoto(code, dataUrl){
+    const db = await getIDB();
+    if(!db) return false;
+    const raw = new Promise((resolve)=>{
+      try{
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).put(dataUrl, code);
+        tx.oncomplete = ()=> resolve(true);
+        tx.onerror = ()=> resolve(false);
+      }catch(e){ resolve(false); }
+    });
+    return withTimeout(raw, 2500, false);
+  }
+  async function idbDeletePhoto(code){
+    const db = await getIDB();
+    if(!db) return false;
+    const raw = new Promise((resolve)=>{
+      try{
+        const tx = db.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).delete(code);
+        tx.oncomplete = ()=> resolve(true);
+        tx.onerror = ()=> resolve(false);
+      }catch(e){ resolve(false); }
+    });
+    return withTimeout(raw, 2500, false);
+  }
+
+  /* ---- Copias de seguridad automáticas (guardadas en este navegador) ----
+     Nota: las fotos NO se incluyen aquí a propósito (viven en IndexedDB y no
+     cambian con cada venta/ajuste de stock), así estas copias siguen siendo
+     ligeras y rápidas aunque tengas cientos de productos con foto. */
+  function loadSnapshots(){
+    try{ return JSON.parse(localStorage.getItem(DB_SNAPSHOTS)) || []; }
+    catch(e){ return []; }
+  }
+  function saveSnapshotList(list){
+    try{ localStorage.setItem(DB_SNAPSHOTS, JSON.stringify(list)); return true; }
+    catch(e){ return false; }
+  }
+  function pushSnapshot(reason){
+    const list = loadSnapshots();
+    list.unshift({
+      date: new Date().toISOString(),
+      reason: reason || "Copia manual",
+      products: products,
+      sales: sales
+    });
+    while(list.length > MAX_SNAPSHOTS) list.pop();
+    saveSnapshotList(list);
+  }
+  function maybeAutoSnapshot(){
+    // Copia periódica de respaldo: como máximo una cada 6 horas, automática
+    const list = loadSnapshots();
+    const last = list[0];
+    const sixHours = 6 * 60 * 60 * 1000;
+    if(!last || (Date.now() - new Date(last.date).getTime()) > sixHours){
+      pushSnapshot("Automática");
+    }
+  }
+
+  function debounce(fn, wait){
+    let t;
+    return function(...args){
+      clearTimeout(t);
+      t = setTimeout(()=> fn.apply(this, args), wait);
+    };
+  }
+
+  let products = loadProducts();
+  let sales = loadSales();
+  let photosCache = {}; // code -> dataURL, poblado desde IndexedDB al arrancar
+  let cart = []; // {code, name, price, buyPrice, qty, stock}
+  let currentPay = "Efectivo";
+  let pendingConfirm = null;
+
+  /* ============ Utilities ============ */
+  function money(n){
+    n = Number(n) || 0;
+    return "$" + n.toLocaleString("es-MX", {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+  function toast(msg, type){
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.className = "show" + (type ? " " + type : "");
+    clearTimeout(toast._t);
+    toast._t = setTimeout(()=> el.className = "", 2600);
+  }
+  function fmtDateTime(iso){
+    const d = new Date(iso);
+    return d.toLocaleDateString("es-MX", {day:"2-digit", month:"2-digit", year:"numeric"}) + " " +
+           d.toLocaleTimeString("es-MX", {hour:"2-digit", minute:"2-digit"});
+  }
+  function isToday(iso){
+    const d = new Date(iso), t = new Date();
+    return d.getFullYear()===t.getFullYear() && d.getMonth()===t.getMonth() && d.getDate()===t.getDate();
+  }
+  function genSaleId(){
+    return "V" + Date.now().toString(36).toUpperCase();
+  }
+  function askConfirm(title, text, onOk){
+    document.getElementById("confirmTitle").textContent = title;
+    document.getElementById("confirmText").textContent = text;
+    pendingConfirm = onOk;
+    document.getElementById("confirmModal").classList.add("show");
+  }
+
+  document.getElementById("confirmCancel").addEventListener("click", ()=>{
+    document.getElementById("confirmModal").classList.remove("show");
+    pendingConfirm = null;
+  });
+  document.getElementById("confirmOk").addEventListener("click", ()=>{
+    document.getElementById("confirmModal").classList.remove("show");
+    if(pendingConfirm) pendingConfirm();
+    pendingConfirm = null;
+  });
+
+  /* ============ Navigation ============ */
+  function setView(view){
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+    document.getElementById("view-" + view).classList.add("active");
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b.dataset.view===view));
+    document.querySelectorAll("#bottomBar button").forEach(b => b.classList.toggle("active", b.dataset.view===view));
+    if(view === "contabilidad") renderAccounting();
+    if(view === "inventario") renderInventory();
+  }
+  document.querySelectorAll(".tab-btn, #bottomBar button").forEach(btn=>{
+    btn.addEventListener("click", ()=> setView(btn.dataset.view));
+  });
+
+  /* ============ POS: catalog search ============ */
+  const posSearch = document.getElementById("posSearch");
+  const posCatalog = document.getElementById("posCatalog");
+
+  function renderCatalog(query, highlightCode){
+    query = (query || "").trim().toLowerCase();
+    let list = products;
+    if(query){
+      list = products.filter(p =>
+        p.name.toLowerCase().includes(query) || p.code.toLowerCase().includes(query)
+      );
+    }
+    document.getElementById("catalogCount").textContent = list.length ? `${list.length} producto${list.length===1?"":"s"}` : "";
+
+    if(products.length === 0){
+      posCatalog.innerHTML = '<div class="empty-state" style="padding:16px; grid-column:1/-1;">Todavía no hay productos. Agrégalos desde la pestaña Inventario.</div>';
+      return;
+    }
+    if(list.length === 0){
+      posCatalog.innerHTML = '<div class="empty-state" style="padding:16px; grid-column:1/-1;">Sin resultados para "'+esc(query)+'".</div>';
+      return;
+    }
+    const CATALOG_RENDER_LIMIT = 150;
+    const truncated = list.length > CATALOG_RENDER_LIMIT;
+    const renderList = truncated ? list.slice(0, CATALOG_RENDER_LIMIT) : list;
+    const placeholderIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16v14H4zM4 15l4-4 4 4 4-6 4 4"/><circle cx="8.5" cy="8.5" r="1.3"/></svg>';
+    let html = renderList.map(p => {
+      const out = p.stockVenta <= 0;
+      const low = !out && p.stockVenta <= p.minStock;
+      const photo = photosCache[p.code];
+      return `
+      <div class="catalog-item${out ? " out-of-stock":""}" data-code="${esc(p.code)}" title="${out ? "Sin existencias en el piso de venta" : "Agregar al carrito"}">
+        <div class="ci-photo">${photo ? `<img src="${photo}" alt="" loading="lazy">` : placeholderIcon}</div>
+        <div>
+          <div class="ci-name">${esc(p.name)}</div>
+          <div class="ci-meta">Código ${esc(p.code)}</div>
+        </div>
+        <div class="ci-bottom">
+          <span class="ci-price">${money(p.sellPrice)}</span>
+          <span class="ci-stock ${out || low ? "low":"ok"}">${out ? "Agotado" : "Venta: " + p.stockVenta}</span>
+        </div>
+      </div>`;
+    }).join("");
+    if(truncated){
+      html += `<div class="empty-state" style="padding:14px; grid-column:1/-1;">Mostrando ${CATALOG_RENDER_LIMIT} de ${list.length} productos. Sigue escribiendo para acotar la búsqueda.</div>`;
+    }
+    posCatalog.innerHTML = html;
+
+    if(highlightCode){
+      const el = posCatalog.querySelector(`.catalog-item[data-code="${CSS.escape(highlightCode)}"]`);
+      if(el){
+        el.scrollIntoView({block:"nearest", behavior:"smooth"});
+        el.classList.add("just-added");
+        setTimeout(()=> el.classList.remove("just-added"), 900);
+      }
+    }
+  }
+  posSearch.addEventListener("input", debounce(()=> renderCatalog(posSearch.value), 150));
+  posSearch.addEventListener("keydown", (e)=>{
+    if(e.key === "Enter"){
+      e.preventDefault();
+      const q = posSearch.value.trim().toLowerCase();
+      if(!q) return;
+      const exact = products.find(p => p.code.toLowerCase() === q);
+      if(exact){ addToCart(exact.code); posSearch.value=""; renderCatalog(""); return; }
+      const first = products.find(p => p.name.toLowerCase().includes(q) || p.code.toLowerCase().includes(q));
+      if(first){ addToCart(first.code); posSearch.value=""; renderCatalog(""); }
+      else toast("No se encontró ningún producto con ese nombre o código.", "err");
+    }
+  });
+  document.getElementById("posSearchBtn").addEventListener("click", ()=>{
+    posSearch.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter"}));
+  });
+  posCatalog.addEventListener("click", (e)=>{
+    const row = e.target.closest(".catalog-item");
+    if(!row || row.classList.contains("out-of-stock")) return;
+    addToCart(row.dataset.code);
+  });
+
+  /* ============ POS: cart ============ */
+  function addToCart(code){
+    const p = products.find(x => x.code === code);
+    if(!p){ toast("Producto no encontrado.", "err"); return; }
+    if(p.stockVenta <= 0){ toast(`"${p.name}" no tiene existencias en el piso de venta. Traspásalo desde el almacén principal.`, "err"); return; }
+    const existing = cart.find(c => c.code === code);
+    if(existing){
+      if(existing.qty + 1 > p.stockVenta){ toast("No hay suficiente stock disponible en venta.", "err"); return; }
+      existing.qty++;
+    } else {
+      cart.push({ code:p.code, name:p.name, price:p.sellPrice, buyPrice:p.buyPrice, qty:1, stock:p.stockVenta });
+    }
+    renderCart();
+  }
+
+  function changeQty(code, delta){
+    const item = cart.find(c => c.code === code);
+    if(!item) return;
+    const p = products.find(x => x.code === code);
+    const newQty = item.qty + delta;
+    if(newQty <= 0){ cart = cart.filter(c => c.code !== code); renderCart(); return; }
+    if(p && newQty > p.stockVenta){ toast("No hay suficiente stock disponible en venta.", "err"); return; }
+    item.qty = newQty;
+    renderCart();
+  }
+
+  function removeFromCart(code){
+    cart = cart.filter(c => c.code !== code);
+    renderCart();
+  }
+
+  function cartTotal(){
+    return cart.reduce((s,c)=> s + c.price * c.qty, 0);
+  }
+
+  function renderCart(){
+    const body = document.getElementById("cartBody");
+    if(cart.length === 0){
+      body.innerHTML = `<tr><td colspan="5"><div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3h2l2.4 12.4A2 2 0 009.36 17H18a2 2 0 002-1.6L21.6 7H6"/></svg>
+        <div>El carrito está vacío. Busca un producto para comenzar.</div>
+      </div></td></tr>`;
+    } else {
+      body.innerHTML = cart.map(c => `
+        <tr>
+          <td><strong>${esc(c.name)}</strong><div class="muted" style="font-size:11px;">${esc(c.code)}</div></td>
+          <td class="num">${money(c.price)}</td>
+          <td>
+            <div class="qty-ctrl">
+              <button type="button" data-act="dec" data-code="${esc(c.code)}">−</button>
+              <span>${c.qty}</span>
+              <button type="button" data-act="inc" data-code="${esc(c.code)}">+</button>
+            </div>
+          </td>
+          <td class="num">${money(c.price*c.qty)}</td>
+          <td><button class="rm-btn" data-act="rm" data-code="${esc(c.code)}" title="Eliminar">✕</button></td>
+        </tr>
+      `).join("");
+    }
+    document.getElementById("posTotal").textContent = money(cartTotal());
+    updateChange();
+  }
+
+  document.getElementById("cartBody").addEventListener("click", (e)=>{
+    const btn = e.target.closest("button");
+    if(!btn) return;
+    const code = btn.dataset.code;
+    if(btn.dataset.act === "inc") changeQty(code, 1);
+    if(btn.dataset.act === "dec") changeQty(code, -1);
+    if(btn.dataset.act === "rm") removeFromCart(code);
+  });
+
+  document.getElementById("clearCartBtn").addEventListener("click", ()=>{
+    if(cart.length===0) return;
+    askConfirm("Vaciar carrito", "Se eliminarán todos los productos del carrito actual.", ()=>{
+      cart = []; renderCart(); toast("Carrito vaciado.");
+    });
+  });
+
+  /* ============ POS: payment ============ */
+  document.getElementById("payMethods").addEventListener("click", (e)=>{
+    const btn = e.target.closest(".pay-btn");
+    if(!btn) return;
+    currentPay = btn.dataset.pay;
+    document.querySelectorAll(".pay-btn").forEach(b=>b.classList.toggle("active", b===btn));
+    document.getElementById("cashRow").style.display = currentPay === "Efectivo" ? "block" : "none";
+    updateChange();
+  });
+
+  document.getElementById("cashGiven").addEventListener("input", updateChange);
+
+  function updateChange(){
+    const total = cartTotal();
+    const given = parseFloat(document.getElementById("cashGiven").value) || 0;
+    const box = document.getElementById("changeBox");
+    const amountEl = document.getElementById("changeAmount");
+    const diff = given - total;
+    amountEl.textContent = money(Math.abs(diff));
+    box.classList.remove("negative","positive");
+    if(currentPay !== "Efectivo" || given === 0){
+      box.classList.remove("negative","positive");
+    } else if(diff < 0){
+      box.classList.add("negative");
+    } else {
+      box.classList.add("positive");
+    }
+  }
+
+  /* ============ POS: finish sale ============ */
+  document.getElementById("finishSaleBtn").addEventListener("click", ()=>{
+    if(cart.length === 0){ toast("Agrega al menos un producto al carrito.", "err"); return; }
+
+    // Re-validate stock right before committing
+    for(const item of cart){
+      const p = products.find(x => x.code === item.code);
+      if(!p || p.stockVenta < item.qty){
+        toast(`Stock insuficiente en venta para "${item.name}".`, "err");
+        return;
+      }
+    }
+
+    const total = cartTotal();
+    let cashGiven = null, change = 0;
+    if(currentPay === "Efectivo"){
+      cashGiven = parseFloat(document.getElementById("cashGiven").value) || 0;
+      if(cashGiven < total){
+        toast("El efectivo recibido es menor al total a pagar.", "err");
+        return;
+      }
+      change = cashGiven - total;
+    }
+
+    const profit = cart.reduce((s,c)=> s + (c.price - c.buyPrice) * c.qty, 0);
+
+    // Deduct stock del almacén de venta
+    cart.forEach(item=>{
+      const p = products.find(x => x.code === item.code);
+      p.stockVenta -= item.qty;
+    });
+    saveProducts(products);
+
+    // Record sale
+    const sale = {
+      id: genSaleId(),
+      date: new Date().toISOString(),
+      items: cart.map(c => ({code:c.code, name:c.name, qty:c.qty, price:c.price, subtotal:c.price*c.qty})),
+      payment: currentPay,
+      total: total,
+      profit: profit,
+      cashGiven: cashGiven,
+      change: change
+    };
+    sales.unshift(sale);
+    saveSales(sales);
+
+    // Reset
+    cart = [];
+    document.getElementById("cashGiven").value = "";
+    renderCart();
+    renderInventory();
+    renderCatalog(posSearch.value);
+    toast(`Venta ${sale.id} registrada — ${money(total)}`, "ok");
+  });
+
+  /* ============ Inventory ============ */
+  const productForm = document.getElementById("productForm");
+  const formError = document.getElementById("formError");
+  const invFormBody = document.getElementById("invFormBody");
+  const invFormToggle = document.getElementById("invFormToggle");
+  let currentPhotoData = null;
+
+  function setFormOpen(open){
+    invFormBody.style.display = open ? "block" : "none";
+    invFormToggle.classList.toggle("open", open);
+  }
+  invFormToggle.addEventListener("click", ()=> setFormOpen(invFormBody.style.display === "none"));
+  document.getElementById("invFormHead").addEventListener("click", (e)=>{
+    if(e.target.closest("#invFormToggle")) return;
+    setFormOpen(invFormBody.style.display === "none");
+  });
+
+  function resizeImage(file, maxSize, quality){
+    return new Promise((resolve, reject)=>{
+      if(!file || !file.type || !file.type.startsWith("image/")){
+        reject(new Error("Formato no soportado")); return;
+      }
+      const reader = new FileReader();
+      reader.onload = (e)=>{
+        const img = new Image();
+        img.onload = ()=>{
+          let w = img.width, h = img.height;
+          if(w > h){ if(w > maxSize){ h = Math.round(h * maxSize / w); w = maxSize; } }
+          else { if(h > maxSize){ w = Math.round(w * maxSize / h); h = maxSize; } }
+          const canvas = document.createElement("canvas");
+          canvas.width = w; canvas.height = h;
+          canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        };
+        img.onerror = ()=> reject(new Error("No se pudo leer la imagen"));
+        img.src = e.target.result;
+      };
+      reader.onerror = ()=> reject(new Error("No se pudo leer el archivo"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function showPhotoPreview(dataUrl){
+    if(dataUrl){
+      document.getElementById("photoPreview").src = dataUrl;
+      document.getElementById("photoPreviewWrap").style.display = "block";
+    } else {
+      document.getElementById("photoPreview").src = "";
+      document.getElementById("photoPreviewWrap").style.display = "none";
+    }
+  }
+
+  document.getElementById("pPhoto").addEventListener("change", (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    resizeImage(file, 400, 0.8).then(dataUrl=>{
+      currentPhotoData = dataUrl;
+      showPhotoPreview(dataUrl);
+    }).catch(()=>{
+      toast("No se pudo procesar la imagen. Intenta con otra foto.", "err");
+      e.target.value = "";
+    });
+  });
+
+  document.getElementById("removePhotoBtn").addEventListener("click", ()=>{
+    currentPhotoData = null;
+    document.getElementById("pPhoto").value = "";
+    showPhotoPreview(null);
+  });
+
+  function showFormError(msg){
+    formError.textContent = msg;
+    formError.style.display = "block";
+  }
+  function clearFormError(){
+    formError.style.display = "none";
+    formError.textContent = "";
+  }
+
+  function resetForm(){
+    productForm.reset();
+    document.getElementById("editingCode").value = "";
+    document.getElementById("invFormTitle").textContent = "Nuevo producto";
+    document.getElementById("productSubmitBtn").textContent = "Guardar producto";
+    document.getElementById("cancelEditBtn").style.display = "none";
+    document.getElementById("pCode").disabled = false;
+    currentPhotoData = null;
+    showPhotoPreview(null);
+    clearFormError();
+    setFormOpen(false);
+  }
+
+  document.getElementById("cancelEditBtn").addEventListener("click", resetForm);
+
+  productForm.addEventListener("submit", async (e)=>{
+    e.preventDefault();
+    clearFormError();
+
+    const code = document.getElementById("pCode").value.trim();
+    const name = document.getElementById("pName").value.trim();
+    const buyPrice = parseFloat(document.getElementById("pBuy").value);
+    const sellPrice = parseFloat(document.getElementById("pSell").value);
+    const stockPrincipal = parseInt(document.getElementById("pStockPrincipal").value, 10);
+    const stockVenta = parseInt(document.getElementById("pStockVenta").value, 10);
+    const minStock = parseInt(document.getElementById("pMin").value, 10);
+    const editingCode = document.getElementById("editingCode").value;
+
+    if(!code || !name){ showFormError("El código y el nombre son obligatorios."); return; }
+    if(isNaN(buyPrice) || buyPrice < 0 || isNaN(sellPrice) || sellPrice < 0){
+      showFormError("Los precios no pueden ser negativos."); return;
+    }
+    if(isNaN(stockPrincipal) || stockPrincipal < 0 || isNaN(stockVenta) || stockVenta < 0 || isNaN(minStock) || minStock < 0){
+      showFormError("Los stocks y la alerta mínima no pueden ser negativos."); return;
+    }
+    if(sellPrice < buyPrice){
+      showFormError("Aviso: el precio de venta es menor al de compra. Verifica los valores antes de guardar.");
+      // still allow saving after warning is shown once more (soft validation) — require explicit resubmit
+      if(!productForm.dataset.confirmedLowMargin){
+        productForm.dataset.confirmedLowMargin = "1";
+        return;
+      }
+    }
+    delete productForm.dataset.confirmedLowMargin;
+
+    if(!editingCode){
+      if(products.some(p => p.code === code)){
+        showFormError("Ya existe un producto con ese código. Usa otro o edita el existente.");
+        return;
+      }
+      products.push({code, name, buyPrice, sellPrice, stockPrincipal, stockVenta, minStock});
+      toast("Producto agregado al inventario.", "ok");
+    } else {
+      const idx = products.findIndex(p => p.code === editingCode);
+      if(idx === -1){ showFormError("El producto que intentas editar ya no existe."); return; }
+      if(code !== editingCode && products.some(p => p.code === code)){
+        showFormError("Ese código ya está en uso por otro producto."); return;
+      }
+      products[idx] = {code, name, buyPrice, sellPrice, stockPrincipal, stockVenta, minStock};
+      // Si cambió el código, la foto anterior queda guardada bajo el código viejo: la movemos.
+      if(code !== editingCode){
+        await idbDeletePhoto(editingCode);
+        delete photosCache[editingCode];
+      }
+      toast("Producto actualizado.", "ok");
+    }
+
+    // La foto se guarda aparte en IndexedDB, no dentro del arreglo de productos.
+    if(currentPhotoData){
+      await idbSetPhoto(code, currentPhotoData);
+      photosCache[code] = currentPhotoData;
+    } else {
+      await idbDeletePhoto(code);
+      delete photosCache[code];
+    }
+
+    saveProducts(products);
+    resetForm();
+    renderInventory();
+    renderCatalog(posSearch.value, code);
+    populateTransferSelect();
+  });
+
+  function startEdit(code){
+    const p = products.find(x => x.code === code);
+    if(!p) return;
+    document.getElementById("editingCode").value = p.code;
+    document.getElementById("pCode").value = p.code;
+    document.getElementById("pCode").disabled = true;
+    document.getElementById("pName").value = p.name;
+    document.getElementById("pBuy").value = p.buyPrice;
+    document.getElementById("pSell").value = p.sellPrice;
+    document.getElementById("pStockPrincipal").value = p.stockPrincipal;
+    document.getElementById("pStockVenta").value = p.stockVenta;
+    document.getElementById("pMin").value = p.minStock;
+    document.getElementById("pPhoto").value = "";
+    currentPhotoData = photosCache[p.code] || null;
+    showPhotoPreview(currentPhotoData);
+    document.getElementById("invFormTitle").textContent = "Editar producto";
+    document.getElementById("productSubmitBtn").textContent = "Guardar cambios";
+    document.getElementById("cancelEditBtn").style.display = "block";
+    clearFormError();
+    setFormOpen(true);
+    document.getElementById("invFormHead").scrollIntoView({block:"start", behavior:"smooth"});
+  }
+
+  function deleteProduct(code){
+    const p = products.find(x => x.code === code);
+    if(!p) return;
+    askConfirm("Eliminar producto", `Se eliminará "${p.name}" del inventario. Esta acción no se puede deshacer.`, async ()=>{
+      pushSnapshot(`Antes de eliminar "${p.name}"`);
+      products = products.filter(x => x.code !== code);
+      saveProducts(products);
+      await idbDeletePhoto(code);
+      delete photosCache[code];
+      renderInventory();
+      renderCatalog(posSearch.value);
+      populateTransferSelect();
+      renderSnapshotList();
+      toast("Producto eliminado. Se guardó una copia de seguridad automática por si necesitas recuperarlo.");
+    });
+  }
+
+  function renderInventory(filter){
+    filter = (filter !== undefined ? filter : document.getElementById("invSearch").value || "").trim().toLowerCase();
+    const body = document.getElementById("invBody");
+    let list = products;
+    if(filter){
+      list = products.filter(p => p.name.toLowerCase().includes(filter) || p.code.toLowerCase().includes(filter));
+    }
+    if(list.length === 0){
+      body.innerHTML = `<tr><td colspan="9"><div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8"/></svg>
+        <div>${products.length===0 ? "Aún no hay productos registrados." : "Sin resultados para tu búsqueda."}</div>
+      </div></td></tr>`;
+      return;
+    }
+    const placeholderIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5h16v14H4zM4 15l4-4 4 4 4-6 4 4"/><circle cx="8.5" cy="8.5" r="1.3"/></svg>';
+    const INV_RENDER_LIMIT = 200;
+    const truncated = list.length > INV_RENDER_LIMIT;
+    const renderList = truncated ? list.slice(0, INV_RENDER_LIMIT) : list;
+    let rowsHtml = renderList.map(p=>{
+      const low = p.stockVenta <= p.minStock;
+      const photo = photosCache[p.code];
+      return `
+        <tr>
+          <td class="num">${esc(p.code)}</td>
+          <td>
+            <div class="name-cell">
+              ${photo ? `<img class="inv-thumb" src="${photo}" alt="" loading="lazy">` : `<span class="inv-thumb-placeholder">${placeholderIcon}</span>`}
+              <strong>${esc(p.name)}</strong>
+            </div>
+          </td>
+          <td class="num">${money(p.buyPrice)}</td>
+          <td class="num">${money(p.sellPrice)}</td>
+          <td>
+            <div class="stock-ctrl">
+              <button type="button" data-stock-act="dec" data-wh="principal" data-code="${esc(p.code)}" ${p.stockPrincipal<=0 ? "disabled":""}>−</button>
+              <input type="number" min="0" step="1" value="${p.stockPrincipal}" data-stock-input="${esc(p.code)}" data-wh="principal">
+              <button type="button" data-stock-act="inc" data-wh="principal" data-code="${esc(p.code)}">+</button>
+            </div>
+          </td>
+          <td>
+            <div class="stock-ctrl">
+              <button type="button" data-stock-act="dec" data-wh="venta" data-code="${esc(p.code)}" ${p.stockVenta<=0 ? "disabled":""}>−</button>
+              <input type="number" min="0" step="1" value="${p.stockVenta}" data-stock-input="${esc(p.code)}" data-wh="venta">
+              <button type="button" data-stock-act="inc" data-wh="venta" data-code="${esc(p.code)}">+</button>
+            </div>
+          </td>
+          <td class="num muted">${p.minStock}</td>
+          <td>
+            <span class="pill ${low ? "pill-low":"pill-ok"}">
+              <span class="dot ${low ? "dot-low":"dot-ok"}" style="width:6px;height:6px;border-radius:50%;background:currentColor;"></span>
+              ${low ? "Stock bajo" : "OK"}
+            </span>
+          </td>
+          <td style="white-space:nowrap;">
+            <button class="btn btn-ghost btn-sm" data-edit="${esc(p.code)}">Editar</button>
+            <button class="btn btn-danger btn-sm" data-del="${esc(p.code)}" style="margin-left:6px;">Eliminar</button>
+          </td>
+        </tr>`;
+    }).join("");
+    if(truncated){
+      rowsHtml += `<tr><td colspan="9"><div class="empty-state" style="padding:14px;">Mostrando ${INV_RENDER_LIMIT} de ${list.length} productos. Usa el buscador para encontrar el resto.</div></td></tr>`;
+    }
+    body.innerHTML = rowsHtml;
+  }
+
+  document.getElementById("invBody").addEventListener("click",(e)=>{
+    const editBtn = e.target.closest("[data-edit]");
+    const delBtn = e.target.closest("[data-del]");
+    const stockBtn = e.target.closest("[data-stock-act]");
+    if(editBtn) startEdit(editBtn.dataset.edit);
+    if(delBtn) deleteProduct(delBtn.dataset.del);
+    if(stockBtn) quickAdjustStock(stockBtn.dataset.code, stockBtn.dataset.wh, stockBtn.dataset.stockAct === "inc" ? 1 : -1);
+  });
+
+  function stockField(wh){ return wh === "principal" ? "stockPrincipal" : "stockVenta"; }
+
+  function quickAdjustStock(code, wh, delta){
+    const p = products.find(x => x.code === code);
+    if(!p) return;
+    const field = stockField(wh);
+    const newStock = p[field] + delta;
+    if(newStock < 0) return;
+    p[field] = newStock;
+    if(saveProducts(products)){
+      renderInventory();
+      renderCatalog(posSearch.value);
+    }
+  }
+
+  document.getElementById("invBody").addEventListener("change",(e)=>{
+    const input = e.target.closest("[data-stock-input]");
+    if(!input) return;
+    const code = input.dataset.stockInput;
+    const wh = input.dataset.wh;
+    const field = stockField(wh);
+    const p = products.find(x => x.code === code);
+    if(!p) return;
+    let val = parseInt(input.value, 10);
+    if(isNaN(val) || val < 0){
+      toast("El stock no puede ser negativo.", "err");
+      input.value = p[field];
+      return;
+    }
+    p[field] = val;
+    if(saveProducts(products)){
+      toast(`Stock ${wh === "principal" ? "de almacén principal" : "de venta"} de "${p.name}" actualizado a ${val}.`, "ok");
+      renderInventory();
+      renderCatalog(posSearch.value);
+    } else {
+      input.value = p[field];
+    }
+  });
+  document.getElementById("invSearch").addEventListener("input", debounce((e)=> renderInventory(e.target.value), 150));
+
+  /* ============ Traspaso entre almacenes ============ */
+  function populateTransferSelect(){
+    const sel = document.getElementById("transferCode");
+    const prev = sel.value;
+    if(products.length === 0){
+      sel.innerHTML = '<option value="">No hay productos</option>';
+      document.getElementById("transferInfo").textContent = "";
+      return;
+    }
+    sel.innerHTML = products.map(p => `<option value="${esc(p.code)}">${esc(p.name)} (${esc(p.code)})</option>`).join("");
+    if(prev && products.some(p => p.code === prev)) sel.value = prev;
+    updateTransferInfo();
+  }
+  function updateTransferInfo(){
+    const code = document.getElementById("transferCode").value;
+    const p = products.find(x => x.code === code);
+    const info = document.getElementById("transferInfo");
+    if(!p){ info.textContent = ""; return; }
+    info.textContent = `Disponible — Principal: ${p.stockPrincipal} · Venta: ${p.stockVenta}`;
+  }
+  document.getElementById("transferCode").addEventListener("change", updateTransferInfo);
+  document.getElementById("transferDir").addEventListener("change", updateTransferInfo);
+
+  document.getElementById("transferBtn").addEventListener("click", ()=>{
+    const code = document.getElementById("transferCode").value;
+    const dir = document.getElementById("transferDir").value;
+    const qty = parseInt(document.getElementById("transferQty").value, 10);
+    const p = products.find(x => x.code === code);
+    if(!p){ toast("Selecciona un producto.", "err"); return; }
+    if(isNaN(qty) || qty <= 0){ toast("Ingresa una cantidad válida mayor a cero.", "err"); return; }
+
+    const fromField = dir === "toVenta" ? "stockPrincipal" : "stockVenta";
+    const toField = dir === "toVenta" ? "stockVenta" : "stockPrincipal";
+
+    if(p[fromField] < qty){
+      toast(`No hay suficiente stock en ${fromField === "stockPrincipal" ? "el almacén principal" : "el piso de venta"} para trasladar esa cantidad.`, "err");
+      return;
+    }
+
+    p[fromField] -= qty;
+    p[toField] += qty;
+    if(saveProducts(products)){
+      document.getElementById("transferQty").value = "";
+      updateTransferInfo();
+      renderInventory();
+      renderCatalog(posSearch.value);
+      toast(`Se trasladaron ${qty} unidades de "${p.name}".`, "ok");
+    }
+  });
+
+
+  /* ============ Accounting ============ */
+  function renderAccounting(filter){
+    filter = (filter !== undefined ? filter : document.getElementById("salesSearch").value || "").trim().toLowerCase();
+
+    const todays = sales.filter(s => isToday(s.date));
+    const income = todays.reduce((s,x)=> s + x.total, 0);
+    const profit = todays.reduce((s,x)=> s + x.profit, 0);
+    document.getElementById("statIncome").textContent = money(income);
+    document.getElementById("statProfit").textContent = money(profit);
+    document.getElementById("statCount").textContent = todays.length;
+
+    let list = sales;
+    if(filter){
+      list = sales.filter(s =>
+        s.id.toLowerCase().includes(filter) ||
+        s.items.some(i => i.name.toLowerCase().includes(filter))
+      );
+    }
+
+    const body = document.getElementById("salesBody");
+    if(list.length === 0){
+      body.innerHTML = `<tr><td colspan="5"><div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 3v18h18M7 15l4-5 3 3 5-7"/></svg>
+        <div>${sales.length===0 ? "Todavía no se ha registrado ninguna venta." : "Sin resultados para tu búsqueda."}</div>
+      </div></td></tr>`;
+      return;
+    }
+    const SALES_RENDER_LIMIT = 200;
+    const truncated = list.length > SALES_RENDER_LIMIT;
+    const renderList = truncated ? list.slice(0, SALES_RENDER_LIMIT) : list;
+    let rowsHtml = renderList.map(s => `
+      <tr>
+        <td class="num">${esc(s.id)}</td>
+        <td>${fmtDateTime(s.date)}</td>
+        <td class="sale-items-list">${s.items.map(i => `${esc(i.name)} ×${i.qty}`).join(", ")}</td>
+        <td>${esc(s.payment)}</td>
+        <td class="num"><strong>${money(s.total)}</strong></td>
+      </tr>
+    `).join("");
+    if(truncated){
+      rowsHtml += `<tr><td colspan="5"><div class="empty-state" style="padding:12px;">Mostrando las ${SALES_RENDER_LIMIT} ventas más recientes de ${list.length}. Usa el buscador para encontrar ventas anteriores.</div></td></tr>`;
+    }
+    body.innerHTML = rowsHtml;
+  }
+  document.getElementById("salesSearch").addEventListener("input", debounce((e)=> renderAccounting(e.target.value), 150));
+
+  /* ============ Exports ============ */
+  document.getElementById("exportExcelBtn").addEventListener("click", ()=>{
+    if(products.length === 0){ toast("No hay productos para exportar.", "err"); return; }
+    const rows = products.map(p => ({
+      "Código": p.code,
+      "Nombre": p.name,
+      "Precio de compra": p.buyPrice,
+      "Precio de venta": p.sellPrice,
+      "Stock almacén principal": p.stockPrincipal,
+      "Stock almacén de venta": p.stockVenta,
+      "Alerta stock mínimo": p.minStock,
+      "Estado": p.stockVenta <= p.minStock ? "Stock bajo" : "OK"
+    }));
+    try{
+      const ws = XLSX.utils.json_to_sheet(rows);
+      ws["!cols"] = [{wch:12},{wch:30},{wch:16},{wch:16},{wch:18},{wch:18},{wch:16},{wch:12}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Inventario");
+      const dateStr = new Date().toISOString().slice(0,10);
+      XLSX.writeFile(wb, `inventario_${dateStr}.xlsx`);
+      toast("Inventario exportado a Excel.", "ok");
+    }catch(err){
+      toast("No se pudo generar el Excel. Revisa tu conexión a internet (se requiere la primera vez para cargar la librería).", "err");
+    }
+  });
+
+  document.getElementById("exportPdfBtn").addEventListener("click", ()=>{
+    try{
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      const todays = sales.filter(s => isToday(s.date));
+      const income = todays.reduce((s,x)=> s + x.total, 0);
+      const profit = todays.reduce((s,x)=> s + x.profit, 0);
+
+      doc.setFontSize(18);
+      doc.setTextColor(15,97,87);
+      doc.text("Reporte Diario — Bitácora", 14, 18);
+      doc.setFontSize(10);
+      doc.setTextColor(90,90,90);
+      doc.text(new Date().toLocaleDateString("es-MX", {weekday:"long", year:"numeric", month:"long", day:"numeric"}), 14, 25);
+
+      doc.setFontSize(11);
+      doc.setTextColor(20,20,20);
+      doc.text(`Ingresos del día: ${money(income)}`, 14, 36);
+      doc.text(`Ganancia del día: ${money(profit)}`, 14, 43);
+      doc.text(`Ventas realizadas: ${todays.length}`, 14, 50);
+
+      const body = todays.map(s => [
+        s.id,
+        fmtDateTime(s.date),
+        s.items.map(i => `${i.name} x${i.qty}`).join(", "),
+        s.payment,
+        money(s.total)
+      ]);
+
+      doc.autoTable({
+        startY: 58,
+        head: [["ID","Fecha/Hora","Productos","Pago","Total"]],
+        body: body.length ? body : [["—","Sin ventas registradas hoy","","",""]],
+        headStyles: { fillColor: [15,97,87] },
+        styles: { fontSize: 9, cellPadding: 3 },
+        columnStyles: { 2: { cellWidth: 70 } }
+      });
+
+      const dateStr = new Date().toISOString().slice(0,10);
+      doc.save(`reporte_diario_${dateStr}.pdf`);
+      toast("Reporte PDF generado.", "ok");
+    }catch(err){
+      toast("No se pudo generar el PDF. Revisa tu conexión a internet (se requiere la primera vez para cargar la librería).", "err");
+    }
+  });
+
+  document.getElementById("exportJsonBtn").addEventListener("click", async ()=>{
+    toast("Preparando respaldo…");
+    const backup = { exportDate: new Date().toISOString(), products, sales, photos: photosCache };
+    const blob = new Blob([JSON.stringify(backup)], {type:"application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `bitacora_respaldo_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast("Respaldo descargado.", "ok");
+  });
+
+  document.getElementById("importJsonBtn").addEventListener("click", ()=>{
+    const fileInput = document.getElementById("importFile");
+    const file = fileInput.files[0];
+    if(!file){ toast("Selecciona un archivo .json primero.", "err"); return; }
+
+    const reader = new FileReader();
+    reader.onload = (e)=>{
+      let data;
+      try{
+        data = JSON.parse(e.target.result);
+      }catch(err){
+        toast("El archivo no es un JSON válido.", "err");
+        return;
+      }
+      if(!data || !Array.isArray(data.products) || !Array.isArray(data.sales)){
+        toast("El archivo de respaldo no tiene el formato esperado.", "err");
+        return;
+      }
+      const validProducts = data.products.every(p =>
+        p && typeof p.code !== "undefined" && typeof p.name === "string" &&
+        !isNaN(parseFloat(p.buyPrice)) && !isNaN(parseFloat(p.sellPrice)) &&
+        !isNaN(parseInt(p.minStock)) &&
+        (!isNaN(parseInt(p.stock)) || (!isNaN(parseInt(p.stockPrincipal)) && !isNaN(parseInt(p.stockVenta))))
+      );
+      if(!validProducts){
+        toast("El archivo contiene productos con datos inválidos.", "err");
+        return;
+      }
+      askConfirm(
+        "Restaurar respaldo",
+        `Esto reemplazará todos tus datos actuales con ${data.products.length} productos y ${data.sales.length} ventas del archivo. Se guardará una copia de seguridad de lo que tienes ahora, por si necesitas deshacerlo. ¿Continuar?`,
+        async ()=>{
+          pushSnapshot("Antes de importar respaldo");
+          const importedProducts = data.products.map(migrateProduct);
+          const legacyPhotos = extractInlinePhotos(importedProducts); // por si el respaldo es de una versión vieja con fotos incrustadas
+          products = importedProducts;
+          sales = data.sales;
+          saveProducts(products);
+          saveSales(sales);
+
+          toast("Restaurando fotos…");
+          const importedPhotos = Object.assign({}, legacyPhotos, data.photos || {});
+          for(const code of Object.keys(importedPhotos)){
+            await idbSetPhoto(code, importedPhotos[code]);
+          }
+          photosCache = await idbGetAllPhotos();
+
+          renderInventory();
+          renderAccounting();
+          cart = [];
+          renderCart();
+          renderCatalog(posSearch.value);
+          populateTransferSelect();
+          renderSnapshotList();
+          fileInput.value = "";
+          toast("Respaldo restaurado correctamente.", "ok");
+        }
+      );
+    };
+    reader.onerror = ()=> toast("No se pudo leer el archivo.", "err");
+    reader.readAsText(file);
+  });
+
+  /* ============ Copias de seguridad automáticas: UI ============ */
+  function renderSnapshotList(){
+    const list = loadSnapshots();
+    const wrap = document.getElementById("snapshotList");
+    if(list.length === 0){
+      wrap.innerHTML = '<div class="empty-state" style="padding:10px;">Todavía no hay copias de seguridad guardadas.</div>';
+      return;
+    }
+    wrap.innerHTML = list.map((snap, idx) => `
+      <div class="snapshot-row">
+        <div class="sr-meta">
+          <span class="sr-date">${fmtDateTime(snap.date)}</span>
+          <span class="snapshot-tag">${esc(snap.reason)}</span>
+          <div class="sr-count">${snap.products.length} productos · ${snap.sales.length} ventas</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" data-restore="${idx}">Restaurar</button>
+      </div>
+    `).join("");
+  }
+
+  document.getElementById("snapshotList").addEventListener("click", (e)=>{
+    const btn = e.target.closest("[data-restore]");
+    if(!btn) return;
+    const idx = parseInt(btn.dataset.restore, 10);
+    const list = loadSnapshots();
+    const snap = list[idx];
+    if(!snap) return;
+    askConfirm(
+      "Restaurar esta copia de seguridad",
+      `Se reemplazarán tus datos actuales con la copia del ${fmtDateTime(snap.date)} (${snap.products.length} productos, ${snap.sales.length} ventas). Tu estado actual también se guardará como copia antes de restaurar.`,
+      ()=>{
+        pushSnapshot("Antes de restaurar copia anterior");
+        products = snap.products.map(migrateProduct);
+        sales = snap.sales;
+        saveProducts(products);
+        saveSales(sales);
+        renderInventory();
+        renderAccounting();
+        cart = [];
+        renderCart();
+        renderCatalog(posSearch.value);
+        populateTransferSelect();
+        renderSnapshotList();
+        toast("Copia de seguridad restaurada.", "ok");
+      }
+    );
+  });
+
+  document.getElementById("createSnapshotBtn").addEventListener("click", ()=>{
+    pushSnapshot("Manual");
+    renderSnapshotList();
+    toast("Copia de seguridad creada.", "ok");
+  });
+
+  /* ============ Init ============ */
+  let bootRendered = false;
+  function renderEverythingNow(){
+    if(bootRendered) return;
+    bootRendered = true;
+    try{
+      renderCart();
+      renderInventory();
+      renderAccounting();
+      renderCatalog("");
+      updateChange();
+      populateTransferSelect();
+      renderSnapshotList();
+    }catch(e){}
+  }
+
+  async function boot(){
+    // Carga las fotos desde IndexedDB (rápido, sin límite práctico de tamaño).
+    // Si algo falla aquí, la app debe abrir igual, solo que sin fotos.
+    try{
+      photosCache = await idbGetAllPhotos();
+    }catch(e){
+      photosCache = {};
+    }
+
+    // Compatibilidad: si algún producto trae la foto incrustada (versión anterior
+    // de la app), la migramos a IndexedDB una sola vez, sin pisar fotos más nuevas.
+    try{
+      const legacy = extractInlinePhotos(products);
+      const legacyCodes = Object.keys(legacy);
+      if(legacyCodes.length){
+        for(const code of legacyCodes){
+          if(!(code in photosCache)){
+            await idbSetPhoto(code, legacy[code]);
+            photosCache[code] = legacy[code];
+          }
+        }
+        saveProducts(products); // guarda los productos ya sin la foto incrustada
+      }
+    }catch(e){ /* si la migración de fotos falla, seguimos sin bloquear el arranque */ }
+
+    try{ maybeAutoSnapshot(); }catch(e){}
+    renderEverythingNow();
+  }
+  boot().catch(renderEverythingNow);
+
+  // Segunda red de seguridad, totalmente independiente de la de arriba: si por
+  // cualquier motivo (ej. IndexedDB colgado en algún navegador móvil) el arranque
+  // no terminó en 5 segundos, mostramos la app igual, sin esperar más a las fotos.
+  // Así nunca queda con botones que no responden.
+  setTimeout(renderEverythingNow, 5000);
+
+})();
+</script>
+</body>
+</html>
